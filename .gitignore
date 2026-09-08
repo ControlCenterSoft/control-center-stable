@@ -1,0 +1,9 @@
+/bin/
+/dist/
+/.toolchain/
+/.env
+/.env.staging
+*.out
+*.test
+coverage.html
+coverage.out

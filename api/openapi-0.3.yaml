@@ -1,0 +1,238 @@
+openapi: 3.1.0
+info:
+  title: Control Center Change Execution API fragment
+  version: 0.3.0
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v1/config/revisions:
+    post:
+      operationId: createConfigRevision
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: object, additionalProperties: true }
+      responses:
+        '201':
+          description: Immutable revision created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigRevision' }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/actions:
+    get:
+      operationId: listActions
+      responses:
+        '200':
+          description: Registered action descriptors
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/changes:
+    post:
+      operationId: createChange
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: If-Match-Revision
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, input, revisionId]
+              properties:
+                action: { type: string }
+                input: { type: object, additionalProperties: true }
+                revisionId: { type: string }
+      responses:
+        '202':
+          description: Change accepted for policy evaluation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Change' }
+        '412': { description: Configuration revision precondition failed }
+        '409': { description: Idempotency key conflict }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/changes/{changeId}/approvals:
+    post:
+      operationId: approveChange
+      parameters:
+        - name: changeId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200':
+          description: Approval recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Change' }
+        '409': { description: Change version conflict }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/jobs/{jobId}:
+    get:
+      operationId: getJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Durable job state and outputs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '404': { description: Job not found }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/jobs/{jobId}/cancel:
+    post:
+      operationId: cancelJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Cancellation accepted or job already terminal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        default: { $ref: '#/components/responses/APIError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  responses:
+    APIError:
+      description: Stable API error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+  schemas:
+    ConfigRevision:
+      type: object
+      required: [id, sequence, digest, content, createdAt]
+      properties:
+        id: { type: string }
+        sequence: { type: integer, format: int64, minimum: 1 }
+        digest: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+        content: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    Change:
+      type: object
+      required: [id, action, requester, revisionId, risk, state, version]
+      properties:
+        id: { type: string }
+        action: { type: string }
+        requester: { type: string }
+        revisionId: { type: string }
+        risk: { type: string, enum: [low, medium, high, critical] }
+        state:
+          type: string
+          enum: [pending_approval, approved, queued, executing, verifying, succeeded, failed, cancelled, rejected]
+        version: { type: integer, format: int64, minimum: 1 }
+        jobId: { type: string, description: Durable job created after required approvals are satisfied }
+    Job:
+      type: object
+      required: [id, changeId, actionName, status, attempt, maxAttempts, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        changeId: { type: string }
+        actionName: { type: string }
+        status:
+          type: string
+          enum: [queued, running, retry_wait, cancel_requested, cancelled, succeeded, failed]
+        attempt: { type: integer, minimum: 0 }
+        maxAttempts: { type: integer, minimum: 1 }
+        nextAttemptAt: { type: string, format: date-time }
+        lastError: { type: string }
+        output: { $ref: '#/components/schemas/ActionOutput' }
+    ActionOutput:
+      type: object
+      additionalProperties: false
+      required: [actualStates, health, auditEvents]
+      properties:
+        actualStates:
+          type: array
+          maxItems: 256
+          items: { $ref: '#/components/schemas/ActualState' }
+        health:
+          type: array
+          maxItems: 256
+          items: { $ref: '#/components/schemas/HealthObservation' }
+        auditEvents:
+          type: array
+          maxItems: 1024
+          items: { $ref: '#/components/schemas/ActionAuditEvent' }
+    ActualState:
+      type: object
+      additionalProperties: false
+      required: [resourceId, kind, state, observedAt]
+      properties:
+        resourceId: { type: string, minLength: 1, maxLength: 256 }
+        kind: { type: string, minLength: 1, maxLength: 256 }
+        state: { type: string, enum: [present, absent, unknown] }
+        observedAt: { type: string, format: date-time }
+        revision: { type: string, maxLength: 256 }
+        details: { type: object, additionalProperties: true }
+    HealthObservation:
+      type: object
+      additionalProperties: false
+      required: [resourceId, status, checkedAt]
+      properties:
+        resourceId: { type: string, minLength: 1, maxLength: 256 }
+        status: { type: string, enum: [healthy, degraded, failed, unknown] }
+        checkedAt: { type: string, format: date-time }
+        message: { type: string, maxLength: 4096 }
+    ActionAuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, occurredAt, actor, action, outcome, correlationId]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 256 }
+        occurredAt: { type: string, format: date-time }
+        actor: { type: string, minLength: 1, maxLength: 256 }
+        action: { type: string, minLength: 1, maxLength: 256 }
+        resourceId: { type: string, maxLength: 256 }
+        outcome: { type: string, minLength: 1, maxLength: 256 }
+        correlationId: { type: string, minLength: 1, maxLength: 256 }
+        details: { type: object, additionalProperties: true }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlation_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            correlation_id: { type: string, minLength: 1, maxLength: 128 }

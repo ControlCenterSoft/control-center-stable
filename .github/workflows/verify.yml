@@ -1,0 +1,144 @@
+name: Verify Control Center
+
+on:
+  push:
+    branches: [main, "publish/**", "release/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: control_center
+          POSTGRES_USER: control_center
+          POSTGRES_PASSWORD: ci-postgres-password-12345
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U control_center -d control_center"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Validate public product boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          forbidden = [
+              r'Home Center', r'ChatGPT', r'Codex', r'CI Fabric',
+              r'DEV-001', r'PREPARATION[_ -]ONLY',
+              r'\b45\.132\.', r'\b192\.168\.',
+              r'BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY',
+              r'gh[pousr]_[A-Za-z0-9_]{20,}',
+              r'sk-(?:proj-)?[A-Za-z0-9_-]{24,}',
+          ]
+          failures = []
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts:
+                  continue
+              if path == Path('.github/workflows/verify.yml'):
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+              for pattern in forbidden:
+                  if re.search(pattern, text, re.I):
+                      failures.append((str(path), pattern))
+          if failures:
+              for item in failures:
+                  print('PUBLIC_BOUNDARY_FAIL', *item)
+              raise SystemExit(1)
+          print('PUBLIC_BOUNDARY=PASS')
+          PY
+      - name: Validate source and contracts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(tr -d '\n' < VERSION)" = "0.3.0"
+          test -z "$(gofmt -l cmd internal tests)"
+          go vet ./...
+          go test -race -count=1 ./...
+          ruby -e 'require "yaml"; ARGV.each { |path| value = YAML.safe_load(File.read(path), aliases: true); abort(path) unless value.fetch("openapi").start_with?("3.") && value.fetch("info").fetch("version") }; puts "OPENAPI_PARSE=PASS"' \
+            api/openapi-0.2.0.yaml api/openapi-0.3.yaml
+      - name: Apply migrations and run PostgreSQL integration
+        shell: bash
+        env:
+          TEST_DATABASE_URL: postgres://control_center:ci-postgres-password-12345@127.0.0.1:55432/control_center?sslmode=disable
+        run: |
+          set -Eeuo pipefail
+          database="${{ job.services.postgres.id }}"
+          docker cp migrations "$database:/migrations"
+          docker cp scripts/migrate.sh "$database:/migrate.sh"
+          docker exec \
+            -e PGDATABASE=control_center \
+            -e PGUSER=control_center \
+            -e PGPASSWORD=ci-postgres-password-12345 \
+            -e MIGRATIONS_DIR=/migrations \
+            "$database" sh /migrate.sh
+          go test -race -count=1 ./internal/persistence/postgres \
+            -run TestPostgresStateSurvivesAdapterRestart
+      - name: Build and smoke-test
+        shell: bash
+        env:
+          CC_LISTEN_ADDR: 127.0.0.1:58080
+          CC_ENVIRONMENT: test
+          CC_DATABASE_URL: postgres://control_center:ci-postgres-password-12345@127.0.0.1:55432/control_center?sslmode=disable
+          CC_BOOTSTRAP_ADMIN_USERNAME: ci-admin
+          CC_BOOTSTRAP_ADMIN_PASSWORD: ci-only-password-12345
+        run: |
+          set -Eeuo pipefail
+          make build
+          ./bin/control-center >"$RUNNER_TEMP/control-center.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/control-center.log"' EXIT
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:58080/health/ready >/dev/null && break
+            test "$attempt" -lt 30
+            sleep 1
+          done
+          cookie_jar="$RUNNER_TEMP/control-center.cookies"
+          curl --fail --silent --show-error --cookie-jar "$cookie_jar" \
+            --header 'Content-Type: application/json' \
+            --data '{"username":"ci-admin","password":"ci-only-password-12345"}' \
+            http://127.0.0.1:58080/api/v1/auth/login >/dev/null
+          curl --fail --silent --show-error --cookie "$cookie_jar" \
+            http://127.0.0.1:58080/api/v1/auth/session >/dev/null
+          docker build \
+            --build-arg VERSION=0.3.0 \
+            --build-arg COMMIT="$GITHUB_SHA" \
+            --build-arg BUILD_TIME=1970-01-01T00:00:00Z \
+            --tag "control-center:$GITHUB_SHA" .
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")" \
+            COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c control-center-0.3.0-linux-amd64.tar.gz.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-0.3.0-${{ github.sha }}
+          path: |
+            dist/control-center-0.3.0-linux-amd64.tar.gz
+            dist/control-center-0.3.0-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

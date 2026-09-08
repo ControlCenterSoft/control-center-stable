@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "product": "Control Center",
+  "version": "0.3.0",
+  "channel": "stable",
+  "platform": "linux-amd64",
+  "entrypoint": "bin/control-center",
+  "database_migration_floor": "0004_change_execution_core",
+  "artifact": "control-center-0.3.0-linux-amd64.tar.gz",
+  "checksum": "control-center-0.3.0-linux-amd64.tar.gz.sha256"
+}

@@ -1,0 +1,40 @@
+{
+  "revisionId": "rev-0003",
+  "revisionDigest": "sha256:97e7cc4df90e6122195b723904770006bbd86461bf866e0fa16e2796366b99a9",
+  "changeState": "succeeded",
+  "changeVersion": 5,
+  "jobStatus": "succeeded",
+  "attempt": 1,
+  "output": {
+    "actualStates": [
+      {
+        "resourceId": "service/api",
+        "kind": "service",
+        "state": "present",
+        "observedAt": "2026-01-02T03:04:06Z",
+        "revision": "rev-0003",
+        "details": {
+          "enabled": true
+        }
+      }
+    ],
+    "health": [
+      {
+        "resourceId": "service/api",
+        "status": "healthy",
+        "checkedAt": "2026-01-02T03:04:06Z",
+        "message": "service is active"
+      }
+    ],
+    "auditEvents": [
+      {
+        "id": "audit-job-0003-1-succeeded",
+        "occurredAt": "2026-01-02T03:04:06Z",
+        "actor": "worker-1",
+        "action": "service.ensure",
+        "outcome": "succeeded",
+        "correlationId": "change-0003"
+      }
+    ]
+  }
+}
