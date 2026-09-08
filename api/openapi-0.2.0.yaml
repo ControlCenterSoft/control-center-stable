@@ -1,0 +1,183 @@
+openapi: 3.1.0
+info:
+  title: Control Center Identity API fragment
+  version: 0.2.0
+  description: Local authentication, sessions and identity-self contracts introduced in Control Center 0.2.0.
+paths:
+  /api/v1/auth/login:
+    post:
+      operationId: loginLocalIdentity
+      summary: Create a local authenticated session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Session created; the opaque token is returned only in an HttpOnly cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '415':
+          description: JSON request body required
+        '503':
+          description: Authentication or security audit unavailable
+  /api/v1/auth/logout:
+    post:
+      operationId: logoutCurrentSession
+      summary: Revoke the current session and clear its cookie
+      security:
+        - sessionCookie: []
+        - bearerSession: []
+      responses:
+        '204':
+          description: Session is absent or revoked; operation is idempotent.
+  /api/v1/auth/session:
+    get:
+      operationId: getCurrentSession
+      summary: Read current session metadata
+      security:
+        - sessionCookie: []
+        - bearerSession: []
+      responses:
+        '200':
+          description: Current session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session]
+                properties:
+                  session:
+                    $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/identity/self:
+    get:
+      operationId: getCurrentIdentity
+      summary: Read the authenticated local identity
+      security:
+        - sessionCookie: []
+        - bearerSession: []
+      responses:
+        '200':
+          description: Current identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [identity]
+                properties:
+                  identity:
+                    $ref: '#/components/schemas/Identity'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/system/overview:
+    get:
+      operationId: getSystemOverview
+      summary: Minimal authorization-protected endpoint
+      security:
+        - sessionCookie: []
+        - bearerSession: []
+      responses:
+        '200':
+          description: Overview is available to identities with system.overview.read at global scope.
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/PermissionDenied'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+    bearerSession:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 128
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+    Identity:
+      type: object
+      additionalProperties: false
+      required: [id, username, display_name, created_at]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        display_name: { type: string }
+        created_at: { type: string, format: date-time }
+    Session:
+      type: object
+      additionalProperties: false
+      required: [id, created_at, expires_at]
+      properties:
+        id: { type: string }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    AuthenticatedSession:
+      type: object
+      additionalProperties: false
+      required: [session, identity]
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        identity:
+          $ref: '#/components/schemas/Identity'
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidCredentials:
+      description: Invalid username or password; does not reveal whether an account exists.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AuthenticationRequired:
+      description: A valid, unexpired and non-revoked session is required.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PermissionDenied:
+      description: The identity has no matching permission binding at the requested scope.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+

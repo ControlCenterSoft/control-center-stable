@@ -1,0 +1,93 @@
+name: Release Control Center
+
+on:
+  create:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: github.ref_type == 'branch' && github.ref == 'release/0.3.0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Qualify exact release source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(tr -d '\n' < VERSION)" = "0.3.0"
+          test -z "$(gofmt -l cmd internal tests)"
+          go vet ./...
+          go test -race -count=1 ./...
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")" \
+            COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c control-center-0.3.0-linux-amd64.tar.gz.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-release-${{ github.sha }}
+          path: |
+            dist/control-center-0.3.0-linux-amd64.tar.gz
+            dist/control-center-0.3.0-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: control-center-release-${{ github.sha }}
+          path: dist
+      - name: Publish immutable tag and release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          tag=v0.3.0
+          repository="$GITHUB_REPOSITORY"
+          if ref_json="$(gh api "repos/$repository/git/ref/tags/$tag" 2>/dev/null)"; then
+            tag_object="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' <<<"$ref_json")"
+            target="$(gh api "repos/$repository/git/tags/$tag_object" --jq .object.sha)"
+            test "$target" = "$GITHUB_SHA"
+          else
+            tag_object="$(gh api --method POST "repos/$repository/git/tags" \
+              -f tag="$tag" \
+              -f message="Control Center 0.3.0" \
+              -f object="$GITHUB_SHA" \
+              -f type=commit --jq .sha)"
+            gh api --method POST "repos/$repository/git/refs" \
+              -f ref="refs/tags/$tag" -f sha="$tag_object" >/dev/null
+          fi
+          (cd dist && sha256sum -c control-center-0.3.0-linux-amd64.tar.gz.sha256)
+          if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
+            existing_target="$(gh release view "$tag" --repo "$repository" --json targetCommitish --jq .targetCommitish)"
+            test "$existing_target" = "$GITHUB_SHA" || test "$existing_target" = "release/0.3.0"
+          else
+            gh release create "$tag" \
+              dist/control-center-0.3.0-linux-amd64.tar.gz \
+              dist/control-center-0.3.0-linux-amd64.tar.gz.sha256 \
+              --repo "$repository" \
+              --target "$GITHUB_SHA" \
+              --title "Control Center 0.3.0" \
+              --notes-file RELEASE_NOTES.md
+          fi

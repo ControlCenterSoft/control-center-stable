@@ -1,0 +1,68 @@
+{
+  "verification": {
+    "status": "failed",
+    "attempt": 1,
+    "lastError": "verify service.ensure: observed service is absent",
+    "output": {
+      "actualStates": [
+        {
+          "resourceId": "service/api",
+          "kind": "service",
+          "state": "absent",
+          "observedAt": "2026-01-02T03:04:05Z"
+        }
+      ],
+      "health": [
+        {
+          "resourceId": "service/api",
+          "status": "degraded",
+          "checkedAt": "2026-01-02T03:04:05Z",
+          "message": "service is inactive"
+        }
+      ],
+      "auditEvents": [
+        {
+          "id": "audit-verify-job-1-failed",
+          "occurredAt": "2026-01-02T03:04:05Z",
+          "actor": "worker-1",
+          "action": "service.ensure",
+          "outcome": "failed",
+          "correlationId": "change-verify-job"
+        }
+      ]
+    }
+  },
+  "injected": {
+    "status": "failed",
+    "attempt": 1,
+    "lastError": "injected worker failure at after_execute: injected disk fault",
+    "output": {
+      "actualStates": [
+        {
+          "resourceId": "service/api",
+          "kind": "service",
+          "state": "present",
+          "observedAt": "2026-01-02T03:04:05Z"
+        }
+      ],
+      "health": [
+        {
+          "resourceId": "service/api",
+          "status": "healthy",
+          "checkedAt": "2026-01-02T03:04:05Z",
+          "message": "service is active"
+        }
+      ],
+      "auditEvents": [
+        {
+          "id": "audit-inject-job-1-failed",
+          "occurredAt": "2026-01-02T03:04:05Z",
+          "actor": "worker-1",
+          "action": "service.ensure",
+          "outcome": "failed",
+          "correlationId": "change-inject-job"
+        }
+      ]
+    }
+  }
+}
