@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"control-center/internal/buildinfo"
 	commonapi "control-center/internal/httpapi"
 	"control-center/internal/identity/audit"
 	"control-center/internal/identity/auth"
@@ -166,7 +167,7 @@ func (s *Server) identitySelf(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) overviewAPI(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "release": "0.2.0"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "release": buildinfo.Version})
 }
 
 func (s *Server) tokenFromRequest(r *http.Request) string {
@@ -243,7 +244,7 @@ var loginTemplate = template.Must(template.New("login").Parse(`<!doctype html>
 var overviewTemplate = template.Must(template.New("overview").Parse(`<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Control Center</title><style>body{font-family:system-ui;max-width:54rem;margin:5vh auto;padding:1rem}.card{border:1px solid #ccc;border-radius:.7rem;padding:1rem}</style></head>
-<body><main><h1>Control Center</h1><div class="card"><h2>Обзор</h2><p>Система готова. Версия 0.2.0.</p><p>Пользователь: {{.DisplayName}} ({{.Username}})</p></div>
+<body><main><h1>Control Center</h1><div class="card"><h2>Обзор</h2><p>Система готова. Версия {{.Version}}.</p><p>Пользователь: {{.DisplayName}} ({{.Username}})</p></div>
 <form method="post" action="/web/logout"><button type="submit">Выйти</button></form></main></body></html>`))
 
 func (s *Server) webLogin(w http.ResponseWriter, _ *http.Request) {
@@ -274,7 +275,15 @@ func (s *Server) webOverview(w http.ResponseWriter, r *http.Request) {
 	principal, _ := PrincipalFromContext(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = overviewTemplate.Execute(w, principal.Identity)
+	_ = overviewTemplate.Execute(w, struct {
+		DisplayName string
+		Username    string
+		Version     string
+	}{
+		DisplayName: principal.Identity.DisplayName,
+		Username:    principal.Identity.Username,
+		Version:     buildinfo.Version,
+	})
 }
 
 func (s *Server) webLogout(w http.ResponseWriter, r *http.Request) {

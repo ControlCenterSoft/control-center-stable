@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   qualify:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.3.0'
+    if: github.ref_type == 'branch' && github.ref_name == 'release/0.3.1'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -27,19 +27,19 @@ jobs:
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
-          test "$(tr -d '\n' < VERSION)" = "0.3.0"
+          test "$(tr -d '\n' < VERSION)" = "0.3.1"
           test -z "$(gofmt -l cmd internal tests)"
           go vet ./...
           go test -race -count=1 ./...
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")" \
             COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
-          (cd dist && sha256sum -c control-center-0.3.0-linux-amd64.tar.gz.sha256)
+          (cd dist && sha256sum -c control-center-0.3.1-linux-amd64.tar.gz.sha256)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: control-center-release-${{ github.sha }}
           path: |
-            dist/control-center-0.3.0-linux-amd64.tar.gz
-            dist/control-center-0.3.0-linux-amd64.tar.gz.sha256
+            dist/control-center-0.3.1-linux-amd64.tar.gz
+            dist/control-center-0.3.1-linux-amd64.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -64,7 +64,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          tag=v0.3.0
+          tag=v0.3.1
           repository="$GITHUB_REPOSITORY"
           if ref_json="$(gh api "repos/$repository/git/ref/tags/$tag" 2>/dev/null)"; then
             tag_object="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' <<<"$ref_json")"
@@ -73,22 +73,22 @@ jobs:
           else
             tag_object="$(gh api --method POST "repos/$repository/git/tags" \
               -f tag="$tag" \
-              -f message="Control Center 0.3.0" \
+              -f message="Control Center 0.3.1" \
               -f object="$GITHUB_SHA" \
               -f type=commit --jq .sha)"
             gh api --method POST "repos/$repository/git/refs" \
               -f ref="refs/tags/$tag" -f sha="$tag_object" >/dev/null
           fi
-          (cd dist && sha256sum -c control-center-0.3.0-linux-amd64.tar.gz.sha256)
+          (cd dist && sha256sum -c control-center-0.3.1-linux-amd64.tar.gz.sha256)
           if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
             existing_target="$(gh release view "$tag" --repo "$repository" --json targetCommitish --jq .targetCommitish)"
-            test "$existing_target" = "$GITHUB_SHA" || test "$existing_target" = "release/0.3.0"
+            test "$existing_target" = "$GITHUB_SHA" || test "$existing_target" = "release/0.3.1"
           else
             gh release create "$tag" \
-              dist/control-center-0.3.0-linux-amd64.tar.gz \
-              dist/control-center-0.3.0-linux-amd64.tar.gz.sha256 \
+              dist/control-center-0.3.1-linux-amd64.tar.gz \
+              dist/control-center-0.3.1-linux-amd64.tar.gz.sha256 \
               --repo "$repository" \
               --target "$GITHUB_SHA" \
-              --title "Control Center 0.3.0" \
+              --title "Control Center 0.3.1" \
               --notes-file RELEASE_NOTES.md
           fi

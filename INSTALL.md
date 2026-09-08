@@ -1,8 +1,8 @@
-# Install Control Center 0.3.0
+# Install Control Center 0.3.1
 
 ## Requirements
 
-- Linux on AMD64 with systemd;
+- Linux on AMD64 with systemd and `systemd-run`;
 - PostgreSQL 17 or a compatible supported PostgreSQL service;
 - `psql`, `sha256sum`, `curl`, and `tar`;
 - an HTTPS reverse proxy for browser or remote access.
@@ -10,7 +10,7 @@
 ## Download and verify
 
 ```sh
-version=0.3.0
+version=0.3.1
 curl -fL -o "control-center-$version-linux-amd64.tar.gz" \
   "https://github.com/ControlCenterSoft/control-center-stable/releases/download/v$version/control-center-$version-linux-amd64.tar.gz"
 curl -fL -o "control-center-$version-linux-amd64.tar.gz.sha256" \
@@ -26,9 +26,9 @@ Stop if checksum verification fails.
 ```sh
 sudo useradd --system --home-dir /var/lib/control-center \
   --create-home --shell /usr/sbin/nologin control-center 2>/dev/null || true
-sudo install -d -o root -g root -m 0755 /opt/control-center/0.3.0
-sudo cp -a control-center-0.3.0/. /opt/control-center/0.3.0/
-sudo ln -sfn /opt/control-center/0.3.0 /opt/control-center/current
+sudo install -d -o root -g root -m 0755 /opt/control-center/0.3.1
+sudo cp -a control-center-0.3.1/. /opt/control-center/0.3.1/
+sudo ln -sfn /opt/control-center/0.3.1 /opt/control-center/current
 sudo install -d -o root -g root -m 0755 /etc/control-center
 sudo install -o root -g root -m 0600 \
   /opt/control-center/current/config/control-center.env.example \
@@ -42,17 +42,36 @@ Edit `/etc/control-center/control-center.env`. Replace every
 `replace-with-...` value and the example database host. Keep the file owned
 by root with mode `0600`.
 
+Use one logical database password for both connection forms. The recommended
+single-literal form is at least 32 characters drawn only from the URI-unreserved
+set `A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, and `-`. With that form, put the exact
+same value in `PGPASSWORD` and in the password component of `CC_DATABASE_URL`.
+
+If an existing database password contains any other character, keep the raw
+password in `PGPASSWORD` and percent-encode its UTF-8 bytes exactly once in the
+`CC_DATABASE_URL` password component. These are two representations of the
+same password; do not generate separate values and do not percent-encode
+`PGPASSWORD`.
+
 ## Prepare the database
 
 Create an empty database and role using your PostgreSQL administration
-procedure. Then load the environment and apply all forward migrations:
+procedure. Then apply all forward migrations in a transient service. systemd
+reads the same `EnvironmentFile` as the application without evaluating it as
+shell code:
 
 ```sh
-sudo sh -c 'set -a
-. /etc/control-center/control-center.env
-set +a
-MIGRATIONS_DIR=/opt/control-center/current/migrations \
-  /opt/control-center/current/scripts/migrate.sh'
+sudo systemd-run --wait --pipe --collect \
+  --service-type=oneshot \
+  --uid=control-center \
+  --gid=control-center \
+  --property=NoNewPrivileges=yes \
+  --property=PrivateTmp=yes \
+  --property=ProtectSystem=strict \
+  --property=ProtectHome=yes \
+  --property=EnvironmentFile=/etc/control-center/control-center.env \
+  --setenv=MIGRATIONS_DIR=/opt/control-center/current/migrations \
+  -- /opt/control-center/current/scripts/migrate.sh
 ```
 
 The migration runner records a checksum for every applied migration and stops
