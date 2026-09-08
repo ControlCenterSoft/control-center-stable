@@ -1,10 +1,10 @@
-# Control Center 0.3.0
+# Control Center 0.3.1
 
 Control Center is an infrastructure-management control plane with durable
 identity, policy, audit, configuration revision, change, job, and worker
 boundaries.
 
-Version `0.3.0` is the current stable release.
+Version `0.3.1` is the current stable release.
 
 ## Included
 

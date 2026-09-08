@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"control-center/internal/buildinfo"
 	commonapi "control-center/internal/httpapi"
 	"control-center/internal/identity/audit"
 	"control-center/internal/identity/auth"
@@ -141,6 +142,43 @@ func TestLoginSessionIdentityAndLogout(t *testing.T) {
 	f.server.ServeHTTP(afterResult, after)
 	if afterResult.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked cookie status=%d", afterResult.Code)
+	}
+}
+
+func TestOverviewUsesRuntimeBuildVersion(t *testing.T) {
+	originalVersion := buildinfo.Version
+	buildinfo.Version = "0.3.1-regression"
+	t.Cleanup(func() { buildinfo.Version = originalVersion })
+
+	f := newHTTPFixture(t)
+	cookie := f.login(t, "viewer")
+
+	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/system/overview", nil)
+	apiRequest.AddCookie(cookie)
+	apiResult := httptest.NewRecorder()
+	f.server.ServeHTTP(apiResult, apiRequest)
+	if apiResult.Code != http.StatusOK {
+		t.Fatalf("overview API status=%d body=%s", apiResult.Code, apiResult.Body.String())
+	}
+	var overview struct {
+		Release string `json:"release"`
+	}
+	if err := json.Unmarshal(apiResult.Body.Bytes(), &overview); err != nil {
+		t.Fatal(err)
+	}
+	if overview.Release != buildinfo.Version {
+		t.Fatalf("overview release=%q, want %q", overview.Release, buildinfo.Version)
+	}
+
+	webRequest := httptest.NewRequest(http.MethodGet, "/overview", nil)
+	webRequest.AddCookie(cookie)
+	webResult := httptest.NewRecorder()
+	f.server.ServeHTTP(webResult, webRequest)
+	if webResult.Code != http.StatusOK {
+		t.Fatalf("overview page status=%d body=%s", webResult.Code, webResult.Body.String())
+	}
+	if !strings.Contains(webResult.Body.String(), "Версия "+buildinfo.Version+".") {
+		t.Fatalf("overview page does not contain runtime version: %s", webResult.Body.String())
 	}
 }
 

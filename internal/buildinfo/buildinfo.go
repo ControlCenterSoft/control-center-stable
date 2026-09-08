@@ -3,7 +3,7 @@ package buildinfo
 // These values are replaced at build time through -ldflags. The defaults make
 // local development builds explicit and reproducible.
 var (
-	Version   = "0.1.0"
+	Version   = "0.3.1"
 	Commit    = "unknown"
 	BuildTime = "unknown"
 )

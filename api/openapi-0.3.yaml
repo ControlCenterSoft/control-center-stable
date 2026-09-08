@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Control Center Change Execution API fragment
-  version: 0.3.0
+  version: 0.3.1
 security:
   - bearerAuth: []
   - sessionCookie: []

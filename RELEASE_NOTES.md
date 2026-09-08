@@ -1,33 +1,28 @@
-# Control Center 0.3.0 release notes
+# Control Center 0.3.1 release notes
 
 Release status: stable
 
-## Highlights
+## Corrections
 
-- Immutable configuration revisions with stale-write preconditions.
-- Policy decisions, risk classes, independent approvals, and an explicit
-  Change state machine.
-- PostgreSQL-backed durable jobs, leases, retries, cancellation, and
-  idempotency records.
-- A typed Action Registry and allowlisted worker with mandatory post-action
-  verification.
-- Actual State, Health, and action-audit evidence persisted with job results.
-- A fail-closed output-integrity gate. Successful output requires a one-to-one
-  Actual State and Health view; invalid or unbounded provider output is
-  rejected before commit.
-- Closed OpenAPI schemas for action outputs and their nested evidence.
+- The overview API and browser page now report the runtime build version
+  instead of a stale hard-coded value.
+- Source-build version metadata now defaults to the same version as `VERSION`.
+- Database migrations are launched through a transient systemd service that
+  reads the service `EnvironmentFile` directly; installation no longer sources
+  that file in a privileged shell.
+- Database credential guidance now defines one logical password and its exact
+  raw-versus-percent-encoded representation.
 
 ## API compatibility
 
-The release extends `/api/v1` with configuration revisions, changes,
-approvals, actions, jobs, and cancellation. Output evidence uses bounded,
-typed contracts; unknown top-level or nested evidence fields are rejected.
+This patch preserves the `/api/v1` contract from 0.3.0. Output evidence remains
+bounded and typed; unknown top-level or nested evidence fields are rejected.
 
 ## Database
 
-Apply PostgreSQL migrations through
-`0004_change_execution_core.up.sql` before starting 0.3.0. Back up the
-database first.
+There are no schema changes from 0.3.0. The migration floor remains
+`0004_change_execution_core.up.sql`; the checksum-tracked runner is idempotent.
+Back up the database before every upgrade.
 
 ## Known limitations
 

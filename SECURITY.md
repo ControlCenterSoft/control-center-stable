@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Version `0.3.0` receives security fixes. Older versions are unsupported.
+Version `0.3.1` receives security fixes. Older versions are unsupported.
 
 ## Reporting a vulnerability
 
