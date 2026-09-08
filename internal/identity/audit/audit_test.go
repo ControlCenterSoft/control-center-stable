@@ -53,6 +53,19 @@ func TestPrepareCanonicalizesTimestampBeforeHash(t *testing.T) {
 	}
 }
 
+func TestPrepareGeneratesPostgresCanonicalUUID(t *testing.T) {
+	prepared, err := Prepare(Event{Action: "identity.login", Outcome: "success"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.ID) != 36 || prepared.ID[8] != '-' || prepared.ID[13] != '-' || prepared.ID[18] != '-' || prepared.ID[23] != '-' {
+		t.Fatalf("generated audit id is not a canonical UUID: %q", prepared.ID)
+	}
+	if err := Verify(prepared, ""); err != nil {
+		t.Fatalf("generated audit event did not verify: %v", err)
+	}
+}
+
 func TestVerifyRejectsBrokenAuditChain(t *testing.T) {
 	first, err := Prepare(Event{ID: "event-1", OccurredAt: time.Now(), Action: "first", Outcome: "success"}, "")
 	if err != nil {

@@ -77,6 +77,10 @@ func TestPostgresStateSurvivesAdapterRestart(t *testing.T) {
 	if err := auditLog.Append(ctx, audit.Event{Action: "integration.restart", Outcome: "success", ActorID: userID}); err != nil {
 		t.Fatal(err)
 	}
+	restartedAuditLog, _ := NewAuditLog(db)
+	if err := restartedAuditLog.VerifyChain(ctx); err != nil {
+		t.Fatalf("audit chain after restart: %v", err)
+	}
 
 	state, _ := NewOrchestrationState(db)
 	content := json.RawMessage(`{"zone": "b", "generation": 1}`)
