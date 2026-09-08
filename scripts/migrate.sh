@@ -45,8 +45,9 @@ for migration in "$MIGRATIONS_DIR"/*.up.sql; do
     checksum=$(sha256sum "$migration" | awk '{print $1}')
     applied_checksum=$(
         psql -X --tuples-only --no-align --set=ON_ERROR_STOP=1 \
-            --set=version="$version" \
-            -c "SELECT checksum FROM schema_migrations WHERE version = :'version'"
+            --set=version="$version" <<'SQL'
+SELECT checksum FROM schema_migrations WHERE version = :'version';
+SQL
     )
 
     if [ -n "$applied_checksum" ]; then
