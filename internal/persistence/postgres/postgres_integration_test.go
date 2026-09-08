@@ -79,7 +79,7 @@ func TestPostgresStateSurvivesAdapterRestart(t *testing.T) {
 	}
 
 	state, _ := NewOrchestrationState(db)
-	content := json.RawMessage(`{"generation":1}`)
+	content := json.RawMessage(`{"zone": "b", "generation": 1}`)
 	fingerprint := hexDigestBytes(content)
 	revision, err := state.CreateRevision(ctx, userID, "revision-"+suffix, fingerprint, content, time.Now().UTC())
 	if err != nil {
@@ -141,6 +141,9 @@ func TestPostgresStateSurvivesAdapterRestart(t *testing.T) {
 	loaded, err := restartedState.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(loaded.Revisions) != 1 || string(loaded.Revisions[0].Content) != string(content) {
+		t.Fatalf("configuration revision bytes changed across database round trip: %#v", loaded.Revisions)
 	}
 	foundChange := false
 	for _, candidate := range loaded.Changes {

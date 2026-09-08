@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS cc_config_revisions (
     id              text PRIMARY KEY,
     sequence        bigint NOT NULL UNIQUE CHECK (sequence > 0),
     digest          text NOT NULL UNIQUE CHECK (digest ~ '^sha256:[0-9a-f]{64}$'),
-    content         jsonb NOT NULL,
+    content         json NOT NULL,
     created_at      timestamptz NOT NULL,
     created_by      text NOT NULL
 );
