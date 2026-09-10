@@ -117,6 +117,10 @@ type splitHandler struct {
 
 func (h splitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if path == "/api/v1/version" && strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
 	if strings.HasPrefix(path, "/api/v1/auth/") ||
 		strings.HasPrefix(path, "/api/v1/identity/") ||
 		path == "/api/v1/system/overview" ||
