@@ -4,7 +4,7 @@ Control Center — самостоятельная система централ�
 
 ## Текущий стабильный релиз
 
-**0.26.0** — текущий PUBLIC STABLE RELEASE. Он продвинут из canonical/source tag `ControlCenterSoft/control-center-development@v0.26.0`, commit `23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15`, после отдельной stable qualification.
+**0.26.0** — текущий PUBLIC STABLE RELEASE. Release identity подтверждается опубликованным tag `v0.26.0`, release manifest, checksums, qualification evidence и provenance текущего stable-дерева.
 
 Версия 0.26.0 добавляет permission-gated read-only проверку целостности append-only Audit-цепочки с fail-closed поведением на persistence/HTTP границах, а также compatibility migration для поддерживаемых legacy PostgreSQL-схем без изменения ранее опубликованных migration-файлов.
 
@@ -20,4 +20,4 @@ Control Center — самостоятельная система централ�
 - [Архитектура](ARCHITECTURE.md)
 - [Манифест релиза](RELEASE-MANIFEST.json)
 
-Публичные материалы Control Center не должны содержать внутреннюю инфраструктуру разработки, runner-инфраструктуру, внутренние адреса, секреты, private keys, персональные данные или названия внутренних AI/reviewer-процессов.
+Публичные материалы Control Center не должны содержать сведения об исходной инфраструктуре и внутренних процессах разработки, runner-инфраструктуру, внутренние repository/branch details, служебные адреса, секреты, ключи, персональные данные или названия внутренних AI/reviewer-процессов.
