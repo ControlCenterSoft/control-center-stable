@@ -1,23 +1,11 @@
-# Contributing
+# Участие в улучшении документации и продукта
 
-Development is branch- and pull-request-driven.
+Публичные предложения должны быть ограничены продуктовым поведением, пользовательской документацией, воспроизводимыми дефектами и безопасными улучшениями.
 
-## Required checks
+## Обязательная публичная граница
 
-Before opening or updating a pull request:
+Не публикуйте credentials, private keys, tokens, customer data, приватные endpoints, внутренние адреса, внутреннюю инфраструктуру, служебную топологию, внутренние repository/branch details или сведения о методологии разработки.
 
-```bash
-make ci
-```
+Изменения документации должны соответствовать фактически опубликованным возможностям Stable и не выдавать roadmap или экспериментальные функции за доступный production-функционал.
 
-Changes must keep the repository public-safe: no credentials, private endpoints, customer data, internal infrastructure details or unrelated materials.
-
-## Branches
-
-- `main` — integration baseline;
-- `release/*` — release lines;
-- `develop/core` — core/API/state work;
-- `develop/market` — Market and provider work;
-- `develop/automation` — automation and orchestration;
-- `develop/ui` — product UI;
-- focused feature branches are encouraged for isolated changes.
+Уязвимости и чувствительные security-наблюдения не следует размещать в открытом issue; используйте доступный конфиденциальный канал security-reporting.
