@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.local/api/recovery-restore-drill-freshness-v1.schema.json",
+  "title": "Recovery Restore Drill Freshness Assessment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assessment_id",
+    "restore_id",
+    "target",
+    "verified_at",
+    "checked_at",
+    "valid_until",
+    "max_age_seconds",
+    "state",
+    "advisory_only",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": { "const": "recovery.restore-drill-freshness/v1" },
+    "assessment_id": { "type": "string", "pattern": "^rdf-[0-9a-f]{24}$" },
+    "restore_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "object_id", "scope_id", "statefulness"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["NODE", "SERVICE", "DATABASE", "CONFIGURATION", "USER", "GROUP", "POLICY", "APPLICATION", "SITE", "CONTROL_PLANE"]
+        },
+        "object_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "scope_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "statefulness": { "type": "string", "enum": ["STATELESS", "STATEFUL"] }
+      }
+    },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time" },
+    "max_age_seconds": { "type": "integer", "minimum": 1, "maximum": 31536000 },
+    "state": { "type": "string", "enum": ["FRESH", "STALE"] },
+    "advisory_only": { "const": true },
+    "production_mutation": { "const": false }
+  }
+}

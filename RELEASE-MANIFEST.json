@@ -1,11 +1,9 @@
 {
   "schema": "control-center.stable-release.v1",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "channel": "stable",
-  "canonical_repository": "ControlCenterSoft/control-center-development",
-  "canonical_tag": "v0.26.0",
-  "canonical_commit": "23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15",
-  "qualification_repository": "ControlCenterSoft/control-center-stable",
-  "qualification_run_id": 34627052547,
+  "source_tag": "v0.27.0",
+  "source_commit": "e5a39243e16d8540b79822dc85d8544f24d12725",
+  "qualification_run_id": 34637701427,
   "qualification_result": "success"
 }

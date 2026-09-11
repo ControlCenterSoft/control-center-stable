@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.local/api/recovery-restore-drill-evidence-binding-v1.schema.json",
+  "title": "Recovery Restore Drill Evidence Binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "binding_id",
+    "assessment_id",
+    "restore_id",
+    "restore_resource_version",
+    "restore_generation",
+    "verification_evidence_digest",
+    "verified_at",
+    "advisory_only",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": { "const": "recovery.restore-drill-evidence-binding/v1" },
+    "binding_id": { "type": "string", "pattern": "^rdeb-[0-9a-f]{24}$" },
+    "assessment_id": { "type": "string", "pattern": "^rdf-[0-9a-f]{24}$" },
+    "restore_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "restore_resource_version": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "restore_generation": { "type": "integer", "minimum": 1 },
+    "verification_evidence_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "advisory_only": { "const": true },
+    "production_mutation": { "const": false }
+  }
+}

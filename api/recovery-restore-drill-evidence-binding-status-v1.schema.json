@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.example/schema/recovery-restore-drill-evidence-binding-status-v1.schema.json",
+  "title": "Restore Drill Evidence Binding Status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "state",
+    "reason",
+    "binding_id",
+    "assessment_id",
+    "restore_id",
+    "restore_resource_version",
+    "checked_at",
+    "advisory_only",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "recovery.restore-drill-evidence-binding-status/v1"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["current", "not_current"]
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["binding_matches_exact_current_state", "binding_not_current"]
+    },
+    "binding_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "assessment_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "restore_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "restore_resource_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "advisory_only": {
+      "const": true
+    },
+    "production_mutation": {
+      "const": false
+    }
+  }
+}

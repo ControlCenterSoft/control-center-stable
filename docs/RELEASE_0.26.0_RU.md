@@ -1,11 +1,26 @@
-# Control Center 0.26.0 Stable
+# Control Center 0.26.0 — контроль целостности Audit
 
-Release status: **stable**.
+Control Center 0.26.0 добавляет permission-gated read-only проверку целостности append-only Audit-цепочки и совместимость проверки/обновления для поддерживаемых PostgreSQL-схем предыдущих версий.
 
-Control Center 0.26.0 adds permission-gated read-only verification of append-only Audit-chain integrity. The successful response exposes only bounded aggregate evidence, detects tampering or broken links, fails closed on read/decode/hash/link errors, and records successful verification in Audit before returning success.
+## Что добавляется
 
-The release also adds migration `0010_legacy_03_schema_compatibility` for supported legacy PostgreSQL schemas without rewriting previously published migration files.
+- `GET /api/v1/audit/integrity` доступен только аутентифицированной identity с глобальным разрешением `audit.events.read` и после обязательной смены первоначального пароля.
+- Проверка проходит сохранённую цепочку в порядке событий и проверяет хэш каждого события и связь с предыдущим хэшем.
+- Успешный ответ содержит только агрегированное evidence: `status=verified`, число проверенных событий и хэш последнего проверенного события; сами Audit-события и их содержимое не возвращаются.
+- Для пустого Audit успешный отчёт содержит `events_checked=0` и пустой `verified_through_hash`; для непустой цепочки хэш последнего проверенного события обязателен.
+- Ошибка чтения, декодирования, хэша или связи цепочки приводит к fail-closed отказу без раскрытия внутренних деталей проверки.
+- Успешная проверка сама фиксируется в Audit как `audit.integrity_check`; если evidence нельзя записать, успешный результат клиенту не возвращается.
+- Операция является read-only проверкой и не исправляет, не удаляет и не переписывает Audit автоматически.
 
-Independent stable qualification passed provenance/public-safety checks, format/vet/unit/contracts/build, PostgreSQL 15–18 clean-install and supported-upgrade scenarios, PostgreSQL adapter/restart checks, race detection, deterministic Linux AMD64 packaging and the final stable qualification gate.
+## Совместимость и обновление PostgreSQL
 
-Clean install uses `admin` / `admin` with mandatory password change on first login. Upgrade preserves the existing administrator password.
+- Проверка Audit сохраняет совместимость с ранее сохранённым UUID-представлением событий и при этом не ослабляет обнаружение изменения содержимого или разрыва цепочки.
+- Для legacy-схем добавлена отдельная новая миграция совместимости `0010_legacy_03_schema_compatibility`: она приводит требуемые JSON-поля к текущему `jsonb`-контракту только там, где это необходимо.
+- Уже опубликованные migration-файлы не переписываются: изменение схемы выполнено новой миграцией согласно правилу неизменяемости выпущенных migrations.
+- Для миграции предусмотрен обратный путь; clean install и поддерживаемое обновление проверяются отдельно.
+
+## Проверяемые границы
+
+Release gates проверяют permission boundary, first-login boundary, отсутствие утечки содержимого Audit и внутренних ошибок verifier, корректное пустое состояние, fail-closed поведение при невозможности сохранить success-evidence, PostgreSQL adapter compatibility, restart/race behavior, clean install и поддерживаемый upgrade path.
+
+Qualification выполняется для точного публикуемого SHA. Публикация версии допускается только после успешного прохождения обязательных deterministic release gates; недоступность дополнительного необязательного reviewer не заменяет и не отменяет эти проверки.

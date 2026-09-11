@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.example/schema/recovery-restore-drill-freshness-snapshot-v1.schema.json",
+  "title": "Restore Drill Freshness Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "state",
+    "checked_at",
+    "max_age_seconds",
+    "advisory_only",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "recovery.restore-drill-freshness-snapshot/v1"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "object_id", "scope_id", "statefulness"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["NODE", "SERVICE", "DATABASE", "CONFIGURATION", "USER", "GROUP", "POLICY", "APPLICATION", "SITE", "CONTROL_PLANE"]
+        },
+        "object_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "scope_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "statefulness": {
+          "type": "string",
+          "enum": ["STATELESS", "STATEFUL"]
+        }
+      }
+    },
+    "state": {
+      "type": "string",
+      "enum": ["FRESH", "STALE", "UNVERIFIABLE"]
+    },
+    "restore_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "restore_resource_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "restore_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "assessment_id": {
+      "type": "string",
+      "pattern": "^rdf-[0-9a-f]{24}$"
+    },
+    "verified_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "valid_until": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "max_age_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 31536000
+    },
+    "verification_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "advisory_only": {
+      "const": true
+    },
+    "production_mutation": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"state": {"enum": ["FRESH", "STALE"]}},
+        "required": ["state"]
+      },
+      "then": {
+        "required": [
+          "restore_id",
+          "restore_resource_version",
+          "restore_generation",
+          "assessment_id",
+          "verified_at",
+          "valid_until",
+          "verification_evidence_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {"state": {"const": "UNVERIFIABLE"}},
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["reason"],
+        "not": {
+          "anyOf": [
+            {"required": ["restore_id"]},
+            {"required": ["restore_resource_version"]},
+            {"required": ["restore_generation"]},
+            {"required": ["assessment_id"]},
+            {"required": ["verified_at"]},
+            {"required": ["valid_until"]},
+            {"required": ["verification_evidence_digest"]}
+          ]
+        }
+      }
+    }
+  ]
+}
