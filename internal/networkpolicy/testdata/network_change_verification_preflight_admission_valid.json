@@ -1,0 +1,13 @@
+{
+  "schema_version": "network.change.verification-preflight-admission/v1",
+  "admission_id": "sha256:b8123471c5da1d837e31a8eed622ef4513b54810d0c57cba9dae0960dab54862",
+  "plan_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "revision_id": "network-revision-028",
+  "evidence_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "machine_version": 2,
+  "evaluated_at": "2026-09-11T10:00:05Z",
+  "expires_at": "2026-09-11T10:00:20Z",
+  "ready": true,
+  "execution_authorized": false,
+  "production_mutation_allowed": false
+}

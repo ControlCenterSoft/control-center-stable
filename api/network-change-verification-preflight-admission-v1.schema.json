@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.local/schemas/network-change-verification-preflight-admission-v1.schema.json",
+  "title": "Control Center Network Change Verification Preflight Admission v1",
+  "description": "Deterministic, non-authorizing evidence that one exact network ChangePlan has complete, passing and fresh connectivity verification for one exact preflight state-machine revision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "admission_id",
+    "plan_id",
+    "revision_id",
+    "evidence_id",
+    "machine_version",
+    "evaluated_at",
+    "ready",
+    "execution_authorized",
+    "production_mutation_allowed"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "network.change.verification-preflight-admission/v1"
+    },
+    "admission_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-fA-F]{64}$"
+    },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-fA-F]{64}$"
+    },
+    "revision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-fA-F]{64}$"
+    },
+    "machine_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "missing_checks": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/check_name"
+      }
+    },
+    "stale_checks": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/check_name"
+      }
+    },
+    "failed_checks": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/check_name"
+      }
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "production_mutation_allowed": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ready": {
+            "const": true
+          }
+        },
+        "required": [
+          "ready"
+        ]
+      },
+      "then": {
+        "required": [
+          "expires_at"
+        ],
+        "properties": {
+          "missing_checks": {
+            "maxItems": 0
+          },
+          "stale_checks": {
+            "maxItems": 0
+          },
+          "failed_checks": {
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "expires_at"
+              ]
+            }
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "missing_checks"
+                ],
+                "properties": {
+                  "missing_checks": {
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "stale_checks"
+                ],
+                "properties": {
+                  "stale_checks": {
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "failed_checks"
+                ],
+                "properties": {
+                  "failed_checks": {
+                    "minItems": 1
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "check_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    }
+  }
+}

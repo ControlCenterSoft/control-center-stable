@@ -1,16 +1,16 @@
 # Control Center — продуктовая дорожная карта
 
-Статус: **CURRENT**. Текущий официальный Public Stable — **0.27.0**.
+Статус: **CURRENT**. Текущий официальный Public Stable — **0.28.0**.
 
 ## Опубликованная основа
 
-Control Center развивается как самостоятельный инфраструктурный продукт для администраторов. Опубликованная Stable-линия включает Identity/RBAC/Audit, Changes/Jobs, lifecycle/recovery contracts, Site/Network foundation, advisory Capacity Intelligence, Session Security Policy, защищённый локальный вход, bounded Audit access и recovery evidence freshness 0.27.0.
+Control Center развивается как самостоятельный инфраструктурный продукт для администраторов. Опубликованная Stable-линия включает Identity/RBAC/Audit, Changes/Jobs, lifecycle/recovery contracts, Site/Network foundation, advisory Capacity Intelligence, Session Security Policy, защищённый локальный вход, bounded Audit access, recovery evidence freshness и Network Verification Freshness 0.28.0.
 
 ## Архитектурные направления
 
 Single-node остаётся полноценным поддерживаемым вариантом. Multi-node/HA развивается через явные роли узлов, maintenance/drain/replacement/decommission, quorum/fencing/split-brain protection для stateful-профилей, контролируемый switchover/failover только после фактической сертификации и проверяемое восстановление после потери узлов или данных.
 
-Managed Network является частью Core: multi-NIC, WAN/LAN роли, VLAN/bonding где поддерживается, routing, DNS/NTP, firewall policy и staged changes с connectivity validation и rollback. NAT/port-forwarding включаются только явно; наличие WAN+LAN не превращает узел в маршрутизатор автоматически.
+Managed Network является частью Core: multi-NIC, WAN/LAN роли, VLAN/bonding где поддерживается, routing, DNS/NTP, firewall policy и staged changes с connectivity validation и rollback. NAT/port-forwarding включаются только явно; наличие WAN+LAN не превращает узел в маршрутизатор автоматически. Verification evidence для staged changes должно соответствовать точному плану и оставаться актуальным на момент перехода.
 
 Recovery включает Recovery Points, integrity metadata, изолированный restore, поддерживаемые PostgreSQL backup/PITR профили, object-level recovery, измеряемые RPO/RTO и регулярные restore drills. Наличие backup без проверенного restore не считается доказанной готовностью восстановления.
 
