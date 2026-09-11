@@ -3,7 +3,7 @@ name: Promote exact Control Center 0.24.0 tree
 on:
   push:
     branches:
-      - promotion/exact-tree-0.24.0
+      - promotion/exact-tree-0.24.0-v2
 
 permissions:
   contents: write
@@ -97,6 +97,7 @@ jobs:
           make fmt-check
           go vet ./...
           go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
+          unset MIGRATION_INSTALL_DATABASE_URL
           go test -race -count=1 ./...
           make build
 
