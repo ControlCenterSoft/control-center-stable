@@ -93,6 +93,8 @@ jobs:
           rm -f stable/.github/workflows/release.yml
           rm -rf stable/docs
           mkdir -p stable/docs
+          cp source/docs/RELEASE_0.5.0_RU.md stable/docs/
+          cp source/docs/RELEASE_0.6.0_RU.md stable/docs/
 
           cat > stable/README.md <<'EOF'
           # Control Center 0.29.0 Stable
@@ -301,12 +303,15 @@ jobs:
           grep -q '0.29.0' RELEASE_NOTES.md
           grep -q 'Public Stable.*0.29.0\|0.29.0.*Public Stable' ROADMAP.md
           grep -q '"version": "0.29.0"' RELEASE-MANIFEST.json
+          test -f docs/RELEASE_0.5.0_RU.md
+          test -f docs/RELEASE_0.6.0_RU.md
+          test -f docs/RELEASE_0.29.0_RU.md
           test ! -e CONTRIBUTING.md
           test ! -e GEMINI.md
           test ! -e .github/workflows/finalize-0.24.0.yml
           test ! -e .github/workflows/promote-exact-tree-0.24.0.yml
           test ! -e .github/workflows/release.yml
-          grep -RInE --include='*.md' '(Gemini|AI Development Infrastructure|Orchestrator|CI Fabric|GitHub[ -]hosted runner|control-center-development|192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+)' README.md INSTALL.md RELEASE_NOTES.md ROADMAP.md ARCHITECTURE.md docs/RELEASE_0.29.0_RU.md && exit 1 || true
+          grep -RInE --include='*.md' '(Gemini|AI Development Infrastructure|Orchestrator|CI Fabric|GitHub[ -]hosted runner|control-center-development|192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+)' README.md INSTALL.md RELEASE_NOTES.md ROADMAP.md ARCHITECTURE.md docs && exit 1 || true
           go test ./...
           go build -trimpath -buildvcs=false ./cmd/control-center
           if grep -RInE --exclude-dir=.git --exclude='*.sum' '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk-(proj-)?[A-Za-z0-9_-]{24,})' .; then
