@@ -1,0 +1,265 @@
+name: Promote exact Control Center 0.28.0 tree
+
+on:
+  push:
+    branches:
+      - promotion/exact-tree-0.28.0
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: promote-control-center-stable-0.28.0
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.28.0
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  UPSTREAM_TAG: v0.28.0
+  UPSTREAM_SHA: d05821902ef5561bd8d60d66e5fc63ec10a951d7
+  QUALIFICATION_RUN_ID: '34647052629'
+  QUALIFICATION_HEAD_SHA: 24a68f1afe4be4cbc71adb56360a277597722308
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify completed independent qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > /tmp/run.json
+          python3 - <<'PY'
+          import json, os
+          r=json.load(open('/tmp/run.json',encoding='utf-8'))
+          assert r.get('status') == 'completed', r.get('status')
+          assert r.get('conclusion') == 'success', r.get('conclusion')
+          assert r.get('head_sha') == os.environ['QUALIFICATION_HEAD_SHA'], r.get('head_sha')
+          print('QUALIFICATION=PASS')
+          PY
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          path: stable
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout immutable canonical source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test "$(tr -d '\n' < source/VERSION)" = "$VERSION"
+          git -C source tag --points-at HEAD | grep -Fx "$UPSTREAM_TAG"
+          test ! -f source/.env
+          test ! -f source/.env.staging
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Promote exact product tree and stable metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rsync -a --delete \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/GEMINI.md' \
+            --exclude='/config/' \
+            --exclude='/deploy/' \
+            --exclude='/scripts/' \
+            --exclude='/INSTALL.md' \
+            --exclude='/RELEASE_NOTES.md' \
+            --exclude='/RELEASE-MANIFEST.json' \
+            source/ stable/
+          rm -f stable/GEMINI.md
+
+          cat > stable/README.md <<'EOF'
+          # Control Center 0.28.0 Stable
+
+          Control Center — самостоятельная платформа управления инфраструктурой для администраторов. Этот репозиторий является официальным публичным Stable-каналом продукта.
+
+          ## Текущая стабильная версия
+
+          **0.28.0** — текущая стабильная версия.
+
+          Основное изменение 0.28.0 — усиленная проверка актуальности сетевого verification evidence. Результат проверки связности теперь привязан к точному каноническому плану сетевого изменения и его ревизии, имеет ограниченный срок действия и повторно проверяется непосредственно перед переходом state machine к применению.
+
+          Старое, подменённое, относящееся к другой ревизии либо искусственно продлённое evidence отклоняется fail-closed. Verification не является самостоятельной авторизацией изменения сети.
+
+          ## Аутентификация после чистой установки
+
+          Чистая установка создаёт локального пользователя `admin` с первоначальным паролем `admin`. При первом успешном входе пароль необходимо обязательно изменить; до смены пароля обычная работа запрещена. Обновление существующей установки сохраняет заданный администратором пароль и не сбрасывает его.
+
+          ## Документация
+
+          - [Установка и обновление](INSTALL.md)
+          - [Примечания к выпуску](RELEASE_NOTES.md)
+          - [Безопасность](SECURITY.md)
+          - [Архитектура](ARCHITECTURE.md)
+          - [Дорожная карта](ROADMAP.md)
+          - [Манифест выпуска](RELEASE-MANIFEST.json)
+          EOF
+
+          cat > stable/INSTALL.md <<'EOF'
+          # Control Center 0.28.0 — установка и обновление
+
+          ## Требования
+
+          - Linux AMD64 с systemd;
+          - PostgreSQL 15, 16, 17 или 18;
+          - `psql` для применения миграций базы данных;
+          - TLS-терминация перед Control Center при доступе из недоверенной сети.
+
+          ## Чистая установка
+
+          1. Скачайте `control-center-0.28.0-linux-amd64.tar.gz` и проверьте файл по соответствующему `.sha256` либо `SHA256SUMS`.
+          2. Распакуйте выпуск в `/opt/control-center/releases/0.28.0` и направьте `/opt/control-center/current` на этот каталог.
+          3. Создайте системную учётную запись `control-center` и рабочий каталог `/var/lib/control-center`.
+          4. Скопируйте пример конфигурации в `/etc/control-center/control-center.env`, задайте подключение к PostgreSQL и ограничьте права доступа к файлу.
+          5. Если база уже содержит данные, предварительно создайте резервную копию. Затем примените forward migrations штатным механизмом поставки.
+          6. Установите systemd unit Control Center, выполните `systemctl daemon-reload` и запустите сервис.
+          7. Войдите как `admin` / `admin` и обязательно завершите смену пароля при первом входе.
+
+          По умолчанию сервис должен оставаться недоступным из недоверенной сети до завершения безопасной настройки TLS и сетевой политики. Первоначальный пароль нельзя использовать для постоянной эксплуатации.
+
+          ## Обновление с предыдущего Stable
+
+          1. Создайте резервную копию PostgreSQL и текущей конфигурации Control Center.
+          2. Остановите сервис и сохраните возможность возврата к предыдущему каталогу выпуска.
+          3. Распакуйте 0.28.0 в новый каталог выпуска.
+          4. Примените штатный forward-upgrade path с существующими учётными данными базы данных. 0.28.0 не добавляет новую SQL migration и не изменяет опубликованные migrations 0.27.0.
+          5. Переключите `/opt/control-center/current` на 0.28.0 и запустите сервис.
+          6. Проверьте readiness/health, вход существующего администратора, критические read-only операции, Audit согласно RBAC и ожидаемое состояние управляемой сети.
+          7. Не применяйте сетевые изменения автоматически только из-за обновления версии: staged network change остаётся отдельной явно разрешённой операцией с preflight, connectivity validation и rollback.
+          8. При неуспешной проверке остановите новую версию и выполните предусмотренный recovery/rollback с использованием созданной резервной копии и предыдущего каталога выпуска.
+
+          Пароль существующего администратора при обновлении сохраняется и не сбрасывается к `admin`.
+          EOF
+
+          cat > stable/RELEASE_NOTES.md <<'EOF'
+          # Control Center 0.28.0 Stable
+
+          Статус выпуска: **Stable**.
+
+          ## Главное изменение
+
+          Control Center 0.28.0 усиливает безопасный контур сетевых изменений. Connectivity verification evidence теперь жёстко связано с точными `plan_id` и `revision_id`, ограничено freshness budget и повторно проверяется непосредственно на границе перехода из preflight.
+
+          Сериализованный admission остаётся детерминированным снимком результата, но не считается доверенным источником истины: перед переходом система повторно вычисляет identity authoritative evidence, проверяет его актуальность и требует точного соответствия срока действия admission сроку исходного evidence.
+
+          ## Информационная безопасность
+
+          - `ready=true` не предоставляет полномочий на выполнение сетевого изменения;
+          - stale, mixed-plan, malformed, tampered или неполное evidence отклоняется fail-closed;
+          - самосогласованный admission с подменённым `evidence_id` или искусственно продлённым `expires_at` не может открыть apply window;
+          - staged apply, connectivity verification и rollback остаются отдельными обязательными стадиями;
+          - WAN/LAN-конфигурация сама по себе не включает routing, NAT или port-forwarding;
+          - выпуск не добавляет новый network listener, credential flow, secret storage или внешний runtime dependency.
+
+          ## Совместимость и коммерческая граница
+
+          Версия 0.28.0 не добавляет SQL migration, не меняет dependency graph сторонних runtime-компонентов и сохраняет существующие данные и пароль администратора при обновлении. Новых обязательств по redistribution, source-offer или NOTICE из-за scope 0.28.0 не возникает. Существующие license/SPDX и distribution/compliance требования Market сохраняются.
+
+          Независимая Stable qualification подтверждает clean-install и supported-upgrade на PostgreSQL 15, 16, 17 и 18, adapter/restart recovery, race/static/unit/build проверки, public-source safety и воспроизводимую Linux AMD64 упаковку.
+
+          ## Аутентификация
+
+          При чистой установке создаётся `admin` / `admin` с обязательной сменой пароля при первом входе. До смены пароля обычная работа запрещена. Обновление не сбрасывает пользовательский пароль.
+          EOF
+
+          cat > stable/ROADMAP.md <<'EOF'
+          # Control Center — продуктовая дорожная карта
+
+          Статус: **CURRENT**. Текущий официальный Public Stable — **0.28.0**.
+
+          ## Опубликованная основа
+
+          Control Center развивается как самостоятельный инфраструктурный продукт для администраторов. Опубликованная Stable-линия включает Identity/RBAC/Audit, Changes/Jobs, lifecycle/recovery contracts, Site/Network foundation, advisory Capacity Intelligence, Session Security Policy, защищённый локальный вход, bounded Audit access, recovery evidence freshness и Network Verification Freshness 0.28.0.
+
+          ## Архитектурные направления
+
+          Single-node остаётся полноценным поддерживаемым вариантом. Multi-node/HA развивается через явные роли узлов, maintenance/drain/replacement/decommission, quorum/fencing/split-brain protection для stateful-профилей, контролируемый switchover/failover только после фактической сертификации и проверяемое восстановление после потери узлов или данных.
+
+          Managed Network является частью Core: multi-NIC, WAN/LAN роли, VLAN/bonding где поддерживается, routing, DNS/NTP, firewall policy и staged changes с connectivity validation и rollback. NAT/port-forwarding включаются только явно; наличие WAN+LAN не превращает узел в маршрутизатор автоматически. Verification evidence для staged changes должно соответствовать точному плану и оставаться актуальным на момент перехода.
+
+          Recovery включает Recovery Points, integrity metadata, изолированный restore, поддерживаемые PostgreSQL backup/PITR профили, object-level recovery, измеряемые RPO/RTO и регулярные restore drills. Наличие backup без проверенного restore не считается доказанной готовностью восстановления.
+
+          Capacity Planner должен оценивать безопасно доступные ресурсы, прогнозировать исчерпание резерва, выявлять bottleneck и выдавать what-if/placement рекомендации. Автоматическое применение допускается только в отдельно опубликованной policy-driven границе.
+
+          ## Core и Market
+
+          Core содержит Identity/RBAC, Desired/Actual State, Changes/Jobs, Node/Role/Lifecycle, Network, Monitoring/Health, Audit, Backup/Recovery contracts, Capacity Planner foundation и системные API/security boundaries.
+
+          Market содержит устанавливаемые инфраструктурные модули. Для каждого модуля обязательны identity, compatibility/dependency metadata, permissions/capabilities, network/storage requirements, capacity profile, lifecycle и проверяемая license/compliance metadata. Приоритетные семейства: Directory Services, DNS/DHCP, PXE Windows/Linux, Software Automation Windows/Linux, IT Asset/Software Inventory, File Services, Monitoring и Backup.
+
+          ## Безопасные изменения и recovery
+
+          Для опасной операции интерфейс и документация обязаны указывать: что изменится, риск/blast radius, preflight, проверку результата и rollback/recovery. Stateful workload нельзя переносить как stateless сервис без provider-specific migration/recovery adapter и проверки состояния данных.
+
+          ## Аутентификация
+
+          После чистой установки создаётся локальный `admin` с первоначальным паролем `admin`. Первый вход требует обязательной смены пароля; до неё обычная работа запрещена. Обновление сохраняет заданный пользователем пароль и никогда не сбрасывает его к первоначальному значению.
+
+          ## Критерии готовности следующего capability/release
+
+          Capability считается готовой только при наличии проверяемых data/API contracts, RBAC, failure/recovery model, stale-state/idempotency boundaries, health/audit semantics, negative/security tests, upgrade/migration path, backup/restore semantics для stateful data и актуальной эксплуатационной документации.
+
+          Следующий Stable не публикуется при release-blocking defect, отсутствии проверяемого acceptance, неопределённом install/upgrade/recovery path, расхождении документации с кодом или нерешённой high-risk security/recovery проблеме.
+          EOF
+
+          cat > stable/RELEASE-MANIFEST.json <<'EOF'
+          {
+            "schema": "control-center.stable-release.v1",
+            "version": "0.28.0",
+            "channel": "stable",
+            "source_tag": "v0.28.0",
+            "source_commit": "d05821902ef5561bd8d60d66e5fc63ec10a951d7",
+            "qualification_run_id": 34647052629,
+            "qualification_result": "success"
+          }
+          EOF
+
+          mkdir -p stable/docs
+          cp stable/RELEASE_NOTES.md stable/docs/RELEASE_0.28.0_RU.md
+
+      - name: Verify promoted tree without repeating full qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd stable
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          grep -q '0.28.0' README.md
+          grep -q '0.28.0' INSTALL.md
+          grep -q '0.28.0' RELEASE_NOTES.md
+          grep -q 'Public Stable.*0.28.0\|0.28.0.*Public Stable' ROADMAP.md
+          grep -q '"version": "0.28.0"' RELEASE-MANIFEST.json
+          ! grep -RInE --include='*.md' '(Gemini|AI Development Infrastructure|Orchestrator|CI Fabric|GitHub[ -]hosted runner|internal IP|192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+)' README.md INSTALL.md RELEASE_NOTES.md ROADMAP.md docs/RELEASE_0.28.0_RU.md
+          go test ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+          if grep -RInE --exclude-dir=.git --exclude='*.sum' '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|AKIA[0-9A-Z]{16})' .; then
+            echo 'credential-like material detected' >&2
+            exit 1
+          fi
+
+      - name: Commit promoted stable tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git -C stable config user.name "github-actions[bot]"
+          git -C stable config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C stable add -A
+          git -C stable commit -m "release: promote Control Center 0.28.0 public stable tree"
+          git -C stable push origin HEAD:main
+          sha="$(git -C stable rev-parse HEAD)"
+          git -C stable push --force origin "$sha:refs/heads/release/0.28.0"
+          echo "PROMOTED_SHA=$sha" >> "$GITHUB_ENV"
