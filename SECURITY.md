@@ -1,14 +1,15 @@
-# Security policy
+# Политика безопасности
 
-## Repository rules
+## Правила репозитория
 
-- Never commit credentials, private keys, tokens, populated environment files or customer data.
-- Never commit private infrastructure topology or environment-specific access details.
-- Authentication and authorization are enforced server-side.
-- External requests must not become arbitrary shell execution.
-- Privileged operations must use typed, allowlisted actions with explicit authorization and audit evidence.
-- Runtime images run as a non-root user.
+- Никогда не публиковать credentials, private keys, tokens, заполненные environment-файлы или данные клиентов.
+- Никогда не публиковать приватную инфраструктурную топологию, внутренние адреса и environment-specific параметры доступа.
+- Аутентификация и авторизация проверяются на стороне сервера.
+- Внешний запрос не должен превращаться в произвольное shell execution.
+- Привилегированные операции выполняются только через типизированные allowlisted actions с явной авторизацией и Audit evidence.
+- Runtime-образы выполняются от непривилегированного пользователя там, где это предусмотрено поставкой.
+- Ошибка проверки безопасности, целостности или post-condition должна приводить к fail-closed поведению, а не к ложному успеху.
 
-## Reporting
+## Сообщение об уязвимости
 
-Do not disclose a suspected vulnerability in a public issue. Use the repository owner's private security-reporting channel when available.
+Не раскрывайте предполагаемую уязвимость в публичном issue. Используйте приватный канал security reporting владельца репозитория, если он доступен.
