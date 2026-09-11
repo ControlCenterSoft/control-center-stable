@@ -1,0 +1,139 @@
+name: Publish Control Center Stable 0.24.0
+
+on:
+  push:
+    branches:
+      - promotion/publish-stable-0.24.0
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  VERSION: 0.24.0
+  STABLE_SHA: 9923d133a847dc4233d08fcb2e9b4cd0f2290567
+  SOURCE_SHA: 5e6a6dcc41f9d81f028dab5291e87059a1dfeea3
+  VERIFY_RUN_ID: '34562560259'
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: true
+
+      - name: Verify exact stable source and completed verification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$STABLE_SHA"
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          git fetch origin release/0.24.0
+          test "$(git rev-parse FETCH_HEAD)" = "$STABLE_SHA"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFY_RUN_ID")"
+          test "$(jq -r .head_sha <<<"$run_json")" = "$STABLE_SHA"
+          test "$(jq -r .status <<<"$run_json")" = completed
+          test "$(jq -r .conclusion <<<"$run_json")" = success
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and verify stable artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          make fmt-check
+          go vet ./...
+          epoch="$(git show -s --format=%ct "$STABLE_SHA")"
+          SOURCE_DATE_EPOCH="$epoch" COMMIT="$STABLE_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+          git archive --format=tar.gz --prefix="control-center-${VERSION}-source/" \
+            -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_SHA"
+          cp RELEASE-MANIFEST.json "dist/control-center-${VERSION}.release-manifest.json"
+          python3 - <<'PY'
+          import json, os
+          data = {
+              "schema": "control-center.stable-verification.v1",
+              "version": os.environ["VERSION"],
+              "stable_commit": os.environ["STABLE_SHA"],
+              "source_commit": os.environ["SOURCE_SHA"],
+              "verification": "passed",
+              "verification_run": int(os.environ["VERIFY_RUN_ID"]),
+              "gates": [
+                  "public-boundary",
+                  "format",
+                  "vet",
+                  "race",
+                  "build",
+                  "deterministic-bundle",
+                  "postgresql-15-18-clean-install-upgrade-adapters"
+              ]
+          }
+          with open(f"dist/control-center-{os.environ['VERSION']}.qualification.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2, sort_keys=True)
+              f.write("\n")
+          PY
+          (cd dist && sha256sum \
+            "control-center-${VERSION}-linux-amd64.tar.gz" \
+            "control-center-${VERSION}-source.tar.gz" \
+            "control-center-${VERSION}.release-manifest.json" \
+            "control-center-${VERSION}.qualification.json" > SHA256SUMS)
+
+      - name: Publish immutable tag and GitHub Release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tag="v${VERSION}"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            test "$(git rev-list -n 1 "$tag")" = "$STABLE_SHA"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" "$STABLE_SHA" -m "Control Center ${VERSION} stable"
+            git push origin "$tag"
+          fi
+
+          assets=(
+            "dist/control-center-${VERSION}-linux-amd64.tar.gz"
+            "dist/control-center-${VERSION}-linux-amd64.tar.gz.sha256"
+            "dist/control-center-${VERSION}-source.tar.gz"
+            "dist/control-center-${VERSION}.release-manifest.json"
+            "dist/control-center-${VERSION}.qualification.json"
+            "dist/SHA256SUMS"
+          )
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
+            test "$target" = "$STABLE_SHA" || test "$target" = "release/0.24.0"
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$STABLE_SHA" \
+              --title "Control Center ${VERSION}" \
+              --notes-file RELEASE_NOTES.md
+          fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,targetCommitish,url
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-stable-0.24.0-${{ github.run_id }}
+          path: |
+            dist/control-center-0.24.0-linux-amd64.tar.gz
+            dist/control-center-0.24.0-linux-amd64.tar.gz.sha256
+            dist/control-center-0.24.0-source.tar.gz
+            dist/control-center-0.24.0.release-manifest.json
+            dist/control-center-0.24.0.qualification.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
