@@ -1,94 +1,537 @@
-name: Release Control Center
+name: Promote Control Center Stable 0.24.0
 
 on:
   create:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: control-center-stable-promotion-0.24.0
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  UPSTREAM_TAG: v0.24.0
+  UPSTREAM_SHA: b5b534e368acccbef7dc74f9aba4c954cb747798
+  VERSION: 0.24.0
 
 jobs:
-  qualify:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.3.1'
+  source-qualification:
+    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
+      - name: Checkout exact official source release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test "$(tr -d '\n' < source/VERSION)" = "$VERSION"
+          git -C source tag --points-at HEAD | grep -Fx "$UPSTREAM_TAG"
+
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
-          go-version-file: go.mod
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
           cache: true
-      - name: Qualify exact release source
+
+      - name: Public-source safety gate
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
-          test "$(tr -d '\n' < VERSION)" = "0.3.1"
-          test -z "$(gofmt -l cmd internal tests)"
-          go vet ./...
-          go test -race -count=1 ./...
-          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")" \
-            COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
-          (cd dist && sha256sum -c control-center-0.3.1-linux-amd64.tar.gz.sha256)
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: control-center-release-${{ github.sha }}
-          path: |
-            dist/control-center-0.3.1-linux-amd64.tar.gz
-            dist/control-center-0.3.1-linux-amd64.tar.gz.sha256
-          if-no-files-found: error
-          retention-days: 30
+          test ! -f source/.env
+          test ! -f source/.env.staging
+          if grep -RInE --exclude-dir=.git --exclude='*.sum' \
+            '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|sk-(proj-)?[A-Za-z0-9_-]{24,})' source; then
+            echo 'credential-like material detected' >&2
+            exit 1
+          fi
 
-  publish:
-    needs: qualify
+      - name: Format, vet, unit tests and build
+        working-directory: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          make fmt-check
+          go vet ./...
+          go test -count=1 ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+
+  postgres-migration-qualification:
+    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['15', '16', '17', '18']
+        scenario: [clean-install, supported-upgrade]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Checkout exact official source release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: control-center-release-${{ github.sha }}
-          path: dist
-      - name: Publish immutable tag and release
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Qualify database migration path
+        working-directory: source
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+          QUALIFICATION_SCENARIO: ${{ matrix.scenario }}
         run: |
           set -Eeuo pipefail
-          tag=v0.3.1
-          repository="$GITHUB_REPOSITORY"
-          if ref_json="$(gh api "repos/$repository/git/ref/tags/$tag" 2>/dev/null)"; then
-            tag_object="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' <<<"$ref_json")"
-            target="$(gh api "repos/$repository/git/tags/$tag_object" --jq .object.sha)"
-            test "$target" = "$GITHUB_SHA"
-          else
-            tag_object="$(gh api --method POST "repos/$repository/git/tags" \
-              -f tag="$tag" \
-              -f message="Control Center 0.3.1" \
-              -f object="$GITHUB_SHA" \
-              -f type=commit --jq .sha)"
-            gh api --method POST "repos/$repository/git/refs" \
-              -f ref="refs/tags/$tag" -f sha="$tag_object" >/dev/null
+          case "$QUALIFICATION_SCENARIO" in
+            clean-install) qualification_test=TestPostgresCleanInstallAndRestart ;;
+            supported-upgrade) qualification_test=TestPostgresUpgradeFrom03PreservesLegacyState ;;
+            *) exit 2 ;;
+          esac
+          go test ./migrations -run "^${qualification_test}$" -count=1 -v
+
+  postgres-adapter-qualification:
+    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['15', '16', '17', '18']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact official source release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Install current schema
+        working-directory: source
+        env:
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1 -v
+
+      - name: Verify PostgreSQL adapters and restart recovery
+        working-directory: source
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./internal/persistence/postgres -run '^TestPostgres' -count=1 -v
+
+  race-qualification:
+    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact official source release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Install current schema
+        working-directory: source
+        env:
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
+
+      - name: Race detector with PostgreSQL adapters
+        working-directory: source
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test -race -count=1 ./...
+
+  promote-and-publish:
+    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    needs:
+      - source-qualification
+      - postgres-migration-qualification
+      - postgres-adapter-qualification
+      - race-qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout current stable main with write credentials
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          path: stable
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout exact qualified upstream source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test "$(tr -d '\n' < source/VERSION)" = "$VERSION"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Promote exact source tree into stable channel
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='GEMINI.md' \
+            --exclude='config/' \
+            --exclude='deploy/' \
+            --exclude='scripts/' \
+            --exclude='INSTALL.md' \
+            --exclude='RELEASE_NOTES.md' \
+            --exclude='RELEASE-MANIFEST.json' \
+            source/ stable/
+          rm -f stable/GEMINI.md
+
+          cat > stable/README.md <<'EOF'
+          # Control Center 0.24.0 Stable
+
+          Control Center is a self-contained infrastructure-management control plane. This repository is the stable binary distribution channel.
+
+          ## Current stable release
+
+          **0.24.0** is the current stable release. Its product source is promoted from the exact official source release `ControlCenterSoft/control-center-development@v0.24.0`, commit `b5b534e368acccbef7dc74f9aba4c954cb747798`, and is re-qualified independently before stable publication.
+
+          The stable tree contains the promoted product source plus stable-only packaging, installation and service files.
+
+          ## Authentication after a clean install
+
+          A clean installation creates local user `admin` with initial password `admin`. The first successful login requires a password change before normal operation is allowed. Upgrading an existing installation does not reset the administrator password.
+
+          ## Start here
+
+          - [Installation and upgrade](INSTALL.md)
+          - [Stable release notes](RELEASE_NOTES.md)
+          - [Security](SECURITY.md)
+          - [Architecture](ARCHITECTURE.md)
+          - [Release manifest](RELEASE-MANIFEST.json)
+
+          Stable release artifacts are published in GitHub Releases with SHA-256 checksums and exact upstream provenance.
+          EOF
+
+          mkdir -p stable/config stable/deploy/systemd stable/scripts
+          cat > stable/config/control-center.env.example <<'EOF'
+          CC_LISTEN_ADDR=127.0.0.1:8080
+          CC_ENVIRONMENT=production
+          CC_LOG_LEVEL=info
+          CC_DATABASE_URL=postgres://control_center:replace-with-database-password@db.example.invalid:5432/control_center?sslmode=require
+          CC_RESOURCES_FILE=
+          CC_AUTH_SESSION_TTL=8h
+          CC_AUTH_SESSION_IDLE_TIMEOUT=2h
+          PGHOST=db.example.invalid
+          PGPORT=5432
+          PGDATABASE=control_center
+          PGUSER=control_center
+          PGPASSWORD=replace-with-database-password
+          EOF
+
+          cat > stable/INSTALL.md <<'EOF'
+          # Control Center 0.24.0 — installation and upgrade
+
+          ## Requirements
+
+          - Linux AMD64 with systemd;
+          - PostgreSQL 15, 16, 17 or 18;
+          - `psql` for applying database migrations;
+          - TLS termination in front of Control Center for production access.
+
+          ## Clean installation
+
+          1. Download `control-center-0.24.0-linux-amd64.tar.gz` and verify it with the matching `.sha256` file or `SHA256SUMS`.
+          2. Extract the bundle under `/opt/control-center/releases/0.24.0` and point `/opt/control-center/current` to that directory.
+          3. Create the `control-center` service account and `/var/lib/control-center` working directory.
+          4. Copy `config/control-center.env.example` to `/etc/control-center/control-center.env`, set the PostgreSQL connection and protect the file from non-administrative users.
+          5. Back up PostgreSQL if the database is not empty, then apply all `migrations/*.up.sql` through `scripts/migrate.sh`.
+          6. Install `deploy/systemd/control-center.service`, reload systemd and start the service.
+          7. Sign in as `admin` / `admin` and immediately complete the mandatory first-login password change.
+
+          Do not expose the bootstrap credential on an untrusted network. The supplied example binds to loopback by default.
+
+          ## Upgrade from an earlier stable release
+
+          1. Back up PostgreSQL and the current Control Center configuration.
+          2. Stop the service.
+          3. Extract 0.24.0 into a new release directory.
+          4. Apply forward migrations with the existing database credentials.
+          5. Move the `/opt/control-center/current` symlink to 0.24.0 and start the service.
+          6. Verify readiness, authentication, existing administrator access and critical managed-resource reads.
+
+          The existing administrator password is preserved during upgrade; it is not reset to `admin`.
+          EOF
+
+          cat > stable/RELEASE_NOTES.md <<'EOF'
+          # Control Center 0.24.0 Stable
+
+          Release status: **stable**.
+
+          Stable 0.24.0 promotes the exact official source release `v0.24.0` (`b5b534e368acccbef7dc74f9aba4c954cb747798`) after an independent stable qualification pass.
+
+          The accumulated stable line includes the current local authentication and mandatory first-password-change model, session controls, RBAC/self-introspection, audit boundaries, lifecycle/recovery contracts, distributed-core and product API contracts, capacity/placement evidence contracts, and the 0.24.0 bounded protection against password brute force and credential spraying.
+
+          Stable qualification covers formatting/vet/unit/build gates, PostgreSQL clean installation and supported upgrade paths on PostgreSQL 15–18, PostgreSQL adapter/restart checks, race detection, public-repository safety checks and deterministic Linux AMD64 packaging.
+
+          For a clean installation the initial local credential is `admin` / `admin` and must be changed on first login. An upgrade preserves the existing administrator password.
+          EOF
+
+          cat > stable/RELEASE-MANIFEST.json <<'EOF'
+          {
+            "schema": "control-center.stable-release.v1",
+            "version": "0.24.0",
+            "channel": "stable",
+            "upstream_repository": "ControlCenterSoft/control-center-development",
+            "upstream_tag": "v0.24.0",
+            "upstream_commit": "b5b534e368acccbef7dc74f9aba4c954cb747798"
+          }
+          EOF
+
+          cat > stable/scripts/build-release.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+
+          repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+          cd "$repo_root"
+          version="$(tr -d '\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          go_binary="${GO_BINARY:-go}"
+          commit="${COMMIT:-$(git rev-parse HEAD 2>/dev/null || printf unknown)}"
+          source_date_epoch="${SOURCE_DATE_EPOCH:-$(git show -s --format=%ct HEAD 2>/dev/null || printf 0)}"
+          [[ "$source_date_epoch" =~ ^[0-9]+$ ]]
+          build_time="$(date -u -d "@$source_date_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+          dist_dir="${DIST_DIR:-$repo_root/dist}"
+          mkdir -p "$dist_dir"
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          bundle="control-center-$version"
+          mkdir -p "$stage/$bundle/bin" "$stage/$bundle/api" "$stage/$bundle/config" \
+            "$stage/$bundle/deploy/systemd" "$stage/$bundle/migrations" "$stage/$bundle/scripts" "$stage/$bundle/docs"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_binary" build \
+            -trimpath -buildvcs=false \
+            -ldflags="-s -w -X control-center/internal/buildinfo.Version=$version -X control-center/internal/buildinfo.Commit=$commit -X control-center/internal/buildinfo.BuildTime=$build_time" \
+            -o "$stage/$bundle/bin/control-center" ./cmd/control-center
+
+          cp README.md INSTALL.md RELEASE_NOTES.md SECURITY.md ARCHITECTURE.md ROADMAP.md VERSION RELEASE-MANIFEST.json "$stage/$bundle/"
+          cp -a api/. "$stage/$bundle/api/"
+          cp config/control-center.env.example "$stage/$bundle/config/"
+          cp deploy/systemd/control-center.service "$stage/$bundle/deploy/systemd/"
+          find migrations -maxdepth 1 -type f \( -name '*.sql' -o -name 'README.md' \) -exec cp {} "$stage/$bundle/migrations/" \;
+          cp scripts/migrate.sh "$stage/$bundle/scripts/"
+          if [[ -d docs ]]; then cp -a docs/. "$stage/$bundle/docs/"; fi
+          chmod 0755 "$stage/$bundle/bin/control-center" "$stage/$bundle/scripts/migrate.sh"
+
+          artifact="$dist_dir/$bundle-linux-amd64.tar.gz"
+          tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owner \
+            -C "$stage" -czf "$artifact" "$bundle"
+          (cd "$dist_dir" && sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256")
+          printf '%s\n' "$artifact" "$artifact.sha256"
+          SCRIPT
+          chmod 0755 stable/scripts/build-release.sh stable/scripts/migrate.sh
+
+      - name: Verify promoted stable tree before commit
+        working-directory: stable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          test ! -e GEMINI.md
+          if grep -RInE --exclude-dir=.git --exclude='release.yml' --exclude='verify.yml' \
+            '(Home Center|ChatGPT|Codex|CI Fabric|AI Development Infrastructure|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|sk-(proj-)?[A-Za-z0-9_-]{24,})' .; then
+            echo 'stable public-boundary violation' >&2
+            exit 1
           fi
-          (cd dist && sha256sum -c control-center-0.3.1-linux-amd64.tar.gz.sha256)
-          if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
-            existing_target="$(gh release view "$tag" --repo "$repository" --json targetCommitish --jq .targetCommitish)"
-            test "$existing_target" = "$GITHUB_SHA" || test "$existing_target" = "release/0.3.1"
+          make fmt-check
+          go vet ./...
+          go test -race -count=1 ./...
+          make build
+
+      - name: Commit and publish promoted stable tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git -C stable config user.name "github-actions[bot]"
+          git -C stable config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C stable add -A
+          if git -C stable diff --cached --quiet; then
+            echo 'stable tree already matches 0.24.0 promotion'
+          else
+            git -C stable commit -m "release: promote Control Center 0.24.0 to stable"
+            git -C stable push origin HEAD:main
+          fi
+          stable_sha="$(git -C stable rev-parse HEAD)"
+          echo "STABLE_SHA=$stable_sha" >> "$GITHUB_ENV"
+          git -C stable push --force origin "$stable_sha:refs/heads/release/0.24.0"
+
+      - name: Build reproducible stable artifacts
+        working-directory: stable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          upstream_epoch="$(git -C ../source show -s --format=%ct HEAD)"
+          SOURCE_DATE_EPOCH="$upstream_epoch" COMMIT="$UPSTREAM_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+          git archive --format=tar.gz --prefix="control-center-${VERSION}-source/" \
+            -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_SHA"
+          python3 - <<PY
+          import json, os
+          data = {
+              "schema": "control-center.stable-release-evidence.v1",
+              "version": os.environ["VERSION"],
+              "stable_commit": os.environ["STABLE_SHA"],
+              "upstream_repository": os.environ["UPSTREAM_REPOSITORY"],
+              "upstream_tag": os.environ["UPSTREAM_TAG"],
+              "upstream_commit": os.environ["UPSTREAM_SHA"],
+              "qualification_run_id": os.environ["GITHUB_RUN_ID"],
+              "qualification": "passed"
+          }
+          with open(f"dist/control-center-{os.environ['VERSION']}.release-manifest.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2, sort_keys=True)
+              f.write("\n")
+          PY
+          python3 - <<PY
+          import json, os
+          data = {
+              "schema": "control-center.stable-qualification.v1",
+              "version": os.environ["VERSION"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "upstream_commit": os.environ["UPSTREAM_SHA"],
+              "gates": {
+                  "source_integrity": "pass",
+                  "format_vet_unit_build": "pass",
+                  "postgres_15_18_clean_install": "pass",
+                  "postgres_15_18_supported_upgrade": "pass",
+                  "postgres_15_18_adapters": "pass",
+                  "race": "pass",
+                  "stable_tree_reverify": "pass"
+              }
+          }
+          with open(f"dist/control-center-{os.environ['VERSION']}.qualification.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2, sort_keys=True)
+              f.write("\n")
+          PY
+          (cd dist && sha256sum \
+            "control-center-${VERSION}-linux-amd64.tar.gz" \
+            "control-center-${VERSION}-source.tar.gz" \
+            "control-center-${VERSION}.release-manifest.json" \
+            "control-center-${VERSION}.qualification.json" > SHA256SUMS)
+
+      - name: Create immutable tag and GitHub stable release
+        working-directory: stable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tag="v${VERSION}"
+          git fetch --tags origin
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            test "$(git rev-list -n 1 "$tag")" = "$STABLE_SHA"
+          else
+            git tag -a "$tag" "$STABLE_SHA" -m "Control Center ${VERSION} stable"
+            git push origin "$tag"
+          fi
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              "dist/control-center-${VERSION}-linux-amd64.tar.gz" \
+              "dist/control-center-${VERSION}-linux-amd64.tar.gz.sha256" \
+              "dist/control-center-${VERSION}-source.tar.gz" \
+              "dist/control-center-${VERSION}.release-manifest.json" \
+              "dist/control-center-${VERSION}.qualification.json" \
+              "dist/SHA256SUMS" \
+              --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$tag" \
-              dist/control-center-0.3.1-linux-amd64.tar.gz \
-              dist/control-center-0.3.1-linux-amd64.tar.gz.sha256 \
-              --repo "$repository" \
-              --target "$GITHUB_SHA" \
-              --title "Control Center 0.3.1" \
+              "dist/control-center-${VERSION}-linux-amd64.tar.gz" \
+              "dist/control-center-${VERSION}-linux-amd64.tar.gz.sha256" \
+              "dist/control-center-${VERSION}-source.tar.gz" \
+              "dist/control-center-${VERSION}.release-manifest.json" \
+              "dist/control-center-${VERSION}.qualification.json" \
+              "dist/SHA256SUMS" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$STABLE_SHA" \
+              --title "Control Center ${VERSION}" \
               --notes-file RELEASE_NOTES.md
           fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName,name,isDraft,isPrerelease,targetCommitish
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-stable-0.24.0-${{ github.run_id }}
+          path: |
+            stable/dist/control-center-0.24.0-linux-amd64.tar.gz
+            stable/dist/control-center-0.24.0-linux-amd64.tar.gz.sha256
+            stable/dist/control-center-0.24.0-source.tar.gz
+            stable/dist/control-center-0.24.0.release-manifest.json
+            stable/dist/control-center-0.24.0.qualification.json
+            stable/dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
