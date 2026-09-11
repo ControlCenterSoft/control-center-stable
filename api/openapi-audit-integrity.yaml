@@ -1,0 +1,88 @@
+openapi: 3.1.0
+info:
+  title: Control Center Audit Integrity API fragment
+  version: 0.1.0
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v1/audit/integrity:
+    get:
+      operationId: verifyAuditIntegrity
+      summary: Verify the append-only security audit chain
+      description: >-
+        Verifies the complete persisted audit-chain prefix visible to the
+        request and returns only aggregate integrity evidence. The endpoint
+        never returns audit event payloads, actor details, credentials, tokens,
+        or verifier internals. Access requires the global audit.events.read
+        permission and a completed first-login password change. A failed or
+        unavailable verifier fails closed.
+      responses:
+        '200':
+          description: The visible audit-chain prefix was verified successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditIntegrityReport'
+        '401':
+          description: Authentication is missing or no longer valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The caller lacks audit.events.read or must change the bootstrap password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Audit integrity could not be verified or required audit evidence could not be persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  schemas:
+    AuditIntegrityReport:
+      type: object
+      additionalProperties: false
+      required: [status, events_checked, verified_through_hash]
+      properties:
+        status:
+          type: string
+          const: verified
+        events_checked:
+          type: integer
+          minimum: 0
+        verified_through_hash:
+          type: string
+          pattern: '^(|[0-9a-f]{64})$'
+          description: Empty only when no audit events existed in the verified prefix.
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, correlation_id]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            correlation_id:
+              type: string
+              minLength: 1
+              maxLength: 128

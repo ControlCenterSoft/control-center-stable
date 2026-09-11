@@ -1,8 +1,11 @@
 {
   "schema": "control-center.stable-release.v1",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "channel": "stable",
-  "canonical_tag": "v0.25.0",
-  "canonical_commit": "1663799629e713e9c2432d90c3b4fd0856d89ad4",
-  "qualified_candidate_commit": "179f7b13315d86e01bd25c0e5be9619d79c5a631"
+  "canonical_repository": "ControlCenterSoft/control-center-development",
+  "canonical_tag": "v0.26.0",
+  "canonical_commit": "23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15",
+  "qualification_repository": "ControlCenterSoft/control-center-stable",
+  "qualification_run_id": 34627052547,
+  "qualification_result": "success"
 }

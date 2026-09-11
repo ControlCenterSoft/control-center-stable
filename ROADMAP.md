@@ -4,13 +4,13 @@
 
 ## 1. Текущий релизный статус
 
-Последний официально опубликованный исходный релиз Control Center — **0.24.0**. Текущий стабильный бинарный релиз — **0.24.0**.
+Последний официально опубликованный canonical/source release Control Center — **0.25.0**. Полноценный **PUBLIC STABLE RELEASE 0.25.0** опубликован в официальном stable-канале [`ControlCenterSoft/control-center-stable`](https://github.com/ControlCenterSoft/control-center-stable) с актуальными stable/default branch, tag `v0.25.0`, официальным GitHub Release и предусмотренными artifacts/checksums/manifest/provenance.
 
-Следующая версия после 0.24.0 является кандидатной до завершения qualification и официальной публикации. Наличие кода, контракта или предварительной версии не означает пользовательскую доступность.
+Версия **0.26.0** является текущим release candidate и не считается пользовательски опубликованной до завершения собственного release cycle. Наличие кода, контракта, ветки или предварительной версии не означает пользовательскую доступность.
 
 ## 2. Уже опубликованные направления
 
-Опубликованная линия до 0.24.0 включает:
+Опубликованная линия до 0.25.0 включает:
 
 - базовые Identity/RBAC/Audit и durable state boundaries;
 - Changes/Jobs и типизированную модель операций;
@@ -19,15 +19,16 @@
 - advisory Capacity Intelligence: forecast, what-if, placement advice, bottleneck/horizon/calibration и последующие resource-safety ограничения;
 - Session Security Policy;
 - read-only RBAC self-introspection текущей identity;
-- bounded process-local защиту локального входа от brute force и credential spraying.
+- bounded process-local защиту локального входа от brute force и credential spraying;
+- permission-gated bounded read-only доступ к Audit events с bounded pagination, точными фильтрами, integrity validation и fail-closed Audit evidence.
 
 Capacity-возможности остаются advisory-only и сами по себе не разрешают автоматическое изменение инфраструктуры.
 
 ## 3. Ближайшая кандидатная линия
 
-Ближайшая кандидатная работа после 0.24.0 должна развивать только подтверждённые совместимые контракты текущей платформы. Для 0.25.0 целевой пользовательский scope — permission-gated bounded read-only доступ к Audit events с fail-closed security/audit boundaries.
+Текущий candidate **0.26.0** — Audit Integrity: permission-gated read-only проверка целостности Audit с fail-closed поведением для persistence и HTTP boundary. До завершения qualification и официальной публикации этот scope остаётся кандидатным и не должен описываться как доступный в public stable.
 
-Любая следующая capability должна сохранять совместимость с опубликованными Identity/RBAC, Change/Job, Audit, recovery и API boundaries. Нельзя объявлять кандидатную функцию опубликованной до официального релиза.
+Следующие capability обязаны сохранять совместимость с опубликованными Identity/RBAC, Change/Job, Audit, recovery и API boundaries. Нельзя объявлять кандидатную функцию опубликованной до официального релиза.
 
 ## 4. Single-node, multi-node и HA
 
@@ -69,7 +70,7 @@ Backup без подтверждённого restore не считается д�
 
 Network Management является частью Core. Целевая модель должна поддерживать multi-NIC, назначаемые зоны, VLAN/bonding там, где доступно, routing, DNS/NTP, firewall policy и staged changes с connectivity verification.
 
-NAT/port-forwarding включаются только явно. WAN+LAN конфигурация не должна автоматически превращать узел в маршрутизатор. Ошибочное сетевое изменение должно иметь автоматический rollback или заранее определённый recovery path.
+NAT/port-forwarding включаются только явно. WAN+LAN конфигурация не должна автоматически превращать узел в маршрутизатор. Ошибочное сетевое изменение должно иметь automatic rollback или заранее определённый recovery path.
 
 ## 8. Core и Market
 
@@ -86,7 +87,7 @@ Core содержит обязательные платформенные фун
 - Capacity Planner foundation;
 - системные API и общие security boundaries.
 
-Market содержит устанавливаемые инфраструктурные возможности. Для каждого модуля обязательны identity, compatibility/dependency metadata, permissions/capabilities, network/storage requirements, capacity profile и lifecycle.
+Market содержит устанавливаемые инфраструктурные возможности. Для каждого модуля обязательны identity, compatibility/dependency metadata, permissions/capabilities, network/storage requirements, capacity profile, lifecycle и внутренний legal/compliance metadata block: license/SPDX expression, authoritative source, distribution mode, commercial/redistribution disposition, notice/source-offer requirements и versioned evidence digest. При clean status этот механизм не должен добавлять отдельный обязательный пользовательский workflow.
 
 Приоритетные семейства Market:
 
@@ -120,7 +121,9 @@ Market содержит устанавливаемые инфраструкту�
 
 ## 10. Аутентификация после чистой установки
 
-Для стабильного выпуска **0.24.0** после чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход обязан привести к смене пароля; до смены обычная работа запрещена. При обновлении пользовательский пароль сохраняется и не сбрасывается к первоначальному значению.
+Для публичного stable **0.25.0** после чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход обязан привести к смене пароля; до смены обычная работа запрещена. При обновлении пользовательский пароль сохраняется и не сбрасывается к первоначальному значению.
+
+Для первой подходящей будущей версии зафиксировано изменение bootstrap-механизма: clean install должен генерировать уникальный криптографически стойкий одноразовый пароль для `admin`, хранить его локально только в `/root/control-center-bootstrap-password` с `root:root` и mode `0600`, не выводить credential в logs/Audit/telemetry/support/public artifacts, требовать смену до обычной работы и удалять bootstrap-файл после успешной смены. Обновление не должно генерировать новый bootstrap credential и не должно сбрасывать пользовательский пароль. Эта будущая политика не должна приписываться уже выпущенному 0.25.0.
 
 ## 11. Критерии готовности capability
 
@@ -142,7 +145,7 @@ Capability готова только если определены и прове
 
 Релиз нельзя считать завершённым, если остаётся release-blocking defect, отсутствует проверяемый acceptance, не определён install/upgrade/restore path для заявленной области, release notes расходятся с кодом, пользовательская документация выдаёт будущую функцию за опубликованную либо остаётся неразрешённая high-risk security/recovery проблема.
 
-Публикация исходного релиза сама по себе не означает автоматическое развёртывание в production.
+Canonical/source release и PUBLIC STABLE RELEASE — разные стадии. Публично доступной stable-версией считается только релиз, для которого подтверждены официальный stable/default branch, version tag, GitHub Release с `draft=false` и `prerelease=false`, а также предусмотренные public artifacts/manifest/checksums/provenance. Сам canonical release недостаточен.
 
 ## 13. Границы продукта
 
