@@ -65,14 +65,17 @@ jobs:
           print('PUBLIC_BOUNDARY=PASS')
           PY
 
-      - name: Format, vet, race-test and build
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          make fmt-check
-          go vet ./...
-          go test -race -count=1 ./...
-          make build
+      - name: Format check
+        run: make fmt-check
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Race tests
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: make build
 
       - name: Verify deterministic stable bundle
         shell: bash
