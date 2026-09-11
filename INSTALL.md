@@ -1,16 +1,16 @@
-# Install Control Center 0.3.1
+# Установка Control Center 0.24.0
 
-## Requirements
+## Требования
 
-- Linux on AMD64 with systemd and `systemd-run`;
-- PostgreSQL 17 or a compatible supported PostgreSQL service;
-- `psql`, `sha256sum`, `curl`, and `tar`;
-- an HTTPS reverse proxy for browser or remote access.
+- Linux AMD64 с systemd и `systemd-run`;
+- PostgreSQL 15, 16, 17 или 18;
+- `psql`, `sha256sum`, `curl` и `tar`;
+- HTTPS reverse proxy для удалённого или браузерного доступа.
 
-## Download and verify
+## Загрузка и проверка
 
 ```sh
-version=0.3.1
+version=0.24.0
 curl -fL -o "control-center-$version-linux-amd64.tar.gz" \
   "https://github.com/ControlCenterSoft/control-center-stable/releases/download/v$version/control-center-$version-linux-amd64.tar.gz"
 curl -fL -o "control-center-$version-linux-amd64.tar.gz.sha256" \
@@ -19,16 +19,16 @@ sha256sum -c "control-center-$version-linux-amd64.tar.gz.sha256"
 tar -xzf "control-center-$version-linux-amd64.tar.gz"
 ```
 
-Stop if checksum verification fails.
+Если checksum не совпадает, установку необходимо прекратить.
 
-## Install files
+## Установка файлов
 
 ```sh
 sudo useradd --system --home-dir /var/lib/control-center \
   --create-home --shell /usr/sbin/nologin control-center 2>/dev/null || true
-sudo install -d -o root -g root -m 0755 /opt/control-center/0.3.1
-sudo cp -a control-center-0.3.1/. /opt/control-center/0.3.1/
-sudo ln -sfn /opt/control-center/0.3.1 /opt/control-center/current
+sudo install -d -o root -g root -m 0755 /opt/control-center/releases/0.24.0
+sudo cp -a control-center-0.24.0/. /opt/control-center/releases/0.24.0/
+sudo ln -sfn /opt/control-center/releases/0.24.0 /opt/control-center/current
 sudo install -d -o root -g root -m 0755 /etc/control-center
 sudo install -o root -g root -m 0600 \
   /opt/control-center/current/config/control-center.env.example \
@@ -38,27 +38,13 @@ sudo install -o root -g root -m 0644 \
   /etc/systemd/system/control-center.service
 ```
 
-Edit `/etc/control-center/control-center.env`. Replace every
-`replace-with-...` value and the example database host. Keep the file owned
-by root with mode `0600`.
+Отредактируйте `/etc/control-center/control-center.env`: укажите PostgreSQL и другие параметры вашей среды. Файл должен оставаться доступным только администратору (`root:root`, `0600`).
 
-Use one logical database password for both connection forms. The recommended
-single-literal form is at least 32 characters drawn only from the URI-unreserved
-set `A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, and `-`. With that form, put the exact
-same value in `PGPASSWORD` and in the password component of `CC_DATABASE_URL`.
+## Подготовка базы данных
 
-If an existing database password contains any other character, keep the raw
-password in `PGPASSWORD` and percent-encode its UTF-8 bytes exactly once in the
-`CC_DATABASE_URL` password component. These are two representations of the
-same password; do not generate separate values and do not percent-encode
-`PGPASSWORD`.
+Перед обновлением существующей установки обязательно сделайте резервную копию PostgreSQL.
 
-## Prepare the database
-
-Create an empty database and role using your PostgreSQL administration
-procedure. Then apply all forward migrations in a transient service. systemd
-reads the same `EnvironmentFile` as the application without evaluating it as
-shell code:
+Для применения forward migrations используется тот же `EnvironmentFile`, что и для сервиса:
 
 ```sh
 sudo systemd-run --wait --pipe --collect \
@@ -74,10 +60,9 @@ sudo systemd-run --wait --pipe --collect \
   -- /opt/control-center/current/scripts/migrate.sh
 ```
 
-The migration runner records a checksum for every applied migration and stops
-if an already-applied file has changed.
+Migration runner проверяет уже применённые миграции и прекращает работу при несовпадении ожидаемой целостности.
 
-## Start and verify
+## Запуск и проверка
 
 ```sh
 sudo systemctl daemon-reload
@@ -86,16 +71,22 @@ curl --fail --silent --show-error http://127.0.0.1:8080/health/live
 curl --fail --silent --show-error http://127.0.0.1:8080/health/ready
 ```
 
-Publish the loopback listener only through an HTTPS reverse proxy. Restrict
-ingress to authorized operators and do not expose PostgreSQL publicly.
+Для чистой установки используйте первоначальную учётную запись `admin` / `admin`. Первый вход должен завершаться обязательной сменой пароля; до смены пароля обычная работа запрещена.
 
-## Upgrade and rollback
+Не публикуйте loopback listener напрямую в Интернет. Для внешнего доступа используйте HTTPS reverse proxy и ограничивайте ingress авторизованными пользователями. PostgreSQL не должен быть публично доступен.
 
-Back up PostgreSQL before every upgrade. To upgrade, stop the service, install
-the new version in a new directory, apply its forward migrations, update the
-`current` symlink, and restart.
+## Обновление
 
-For rollback, stop the service and restore the matching database backup before
-repointing `current` to the earlier version. Do not run a down migration on a
-live database without first confirming that 0.3-only orchestration state may be
-discarded.
+1. Сделайте резервную копию PostgreSQL и конфигурации Control Center.
+2. Остановите сервис.
+3. Установите новую версию в отдельный каталог `/opt/control-center/releases/<version>`.
+4. Примените forward migrations новой версии.
+5. Переключите `/opt/control-center/current` на новый каталог.
+6. Запустите сервис.
+7. Проверьте health/readiness, вход существующего администратора и критичные операции чтения.
+
+При обновлении пароль администратора сохраняется и **не сбрасывается** на `admin`.
+
+## Rollback
+
+Rollback выполняйте только вместе с совместимым состоянием базы данных. Если новая версия уже изменила схему или данные, сначала восстановите соответствующий backup PostgreSQL, а затем переключайте `/opt/control-center/current` на предыдущую версию.
