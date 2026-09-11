@@ -1,11 +1,13 @@
 {
-  "schema": 1,
+  "schema": "control-center.stable-release.v1",
   "product": "Control Center",
-  "version": "0.3.1",
+  "version": "0.24.0",
   "channel": "stable",
   "platform": "linux-amd64",
   "entrypoint": "bin/control-center",
-  "database_migration_floor": "0004_change_execution_core",
-  "artifact": "control-center-0.3.1-linux-amd64.tar.gz",
-  "checksum": "control-center-0.3.1-linux-amd64.tar.gz.sha256"
+  "source_release_tag": "v0.24.0",
+  "source_commit": "5e6a6dcc41f9d81f028dab5291e87059a1dfeea3",
+  "artifact": "control-center-0.24.0-linux-amd64.tar.gz",
+  "checksum": "control-center-0.24.0-linux-amd64.tar.gz.sha256",
+  "qualification": "passed"
 }
