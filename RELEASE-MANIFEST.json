@@ -1,11 +1,9 @@
 {
   "schema": "control-center.stable-release.v1",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "channel": "stable",
-  "source_tag": "v0.29.0",
-  "source_commit": "306229bcaf650b62f4c23a4252d39c65f50e3481",
-  "qualification_run_id": 34652882226,
-  "qualification_result": "success",
-  "promotion_run_id": 34653569064,
-  "promotion_result": "success"
+  "source_tag": "v0.30.0",
+  "source_commit": "a4851fd0b35a3bbb836426f68ce859caf780e829",
+  "qualification_run_id": 34656790604,
+  "qualification_result": "success"
 }

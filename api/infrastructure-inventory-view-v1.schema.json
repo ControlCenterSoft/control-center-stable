@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/infrastructure-inventory-view-v1.schema.json",
+  "title": "Control Center Infrastructure Inventory View v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "state",
+    "site_count",
+    "node_count",
+    "sites"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.infrastructure-inventory/v1"
+    },
+    "state": {
+      "$ref": "#/$defs/inventoryState"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "site_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "node_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sites": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/site"
+      }
+    }
+  },
+  "$defs": {
+    "inventoryState": {
+      "type": "string",
+      "enum": [
+        "unavailable",
+        "current",
+        "stale",
+        "expired"
+      ]
+    },
+    "evidenceAvailability": {
+      "type": "string",
+      "enum": [
+        "unavailable",
+        "available"
+      ]
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._:-]*[A-Za-z0-9])?$"
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "scope_id",
+        "node_count",
+        "nodes"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "scope_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "node_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "hostname",
+        "site_id",
+        "capabilities",
+        "roles",
+        "collected_at",
+        "freshness",
+        "hardware",
+        "connectivity",
+        "desired_state",
+        "actual_state",
+        "version_skew"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253
+        },
+        "site_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "management_zone_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "roles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "management-node",
+              "global-controller",
+              "site-controller",
+              "controller-cluster-member",
+              "worker-node",
+              "managed-node",
+              "agent",
+              "data-node",
+              "consensus-node",
+              "repository-node",
+              "telemetry-node",
+              "backup-repository-node",
+              "edge-gateway"
+            ]
+          }
+        },
+        "collected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "freshness": {
+          "$ref": "#/$defs/inventoryState"
+        },
+        "hardware": {
+          "$ref": "#/$defs/hardware"
+        },
+        "connectivity": {
+          "$ref": "#/$defs/connectivity"
+        },
+        "desired_state": {
+          "$ref": "#/$defs/evidenceAvailability"
+        },
+        "actual_state": {
+          "$ref": "#/$defs/evidenceAvailability"
+        },
+        "version_skew": {
+          "$ref": "#/$defs/evidenceAvailability"
+        }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_cores",
+        "memory_bytes",
+        "storage_bytes",
+        "storage_devices"
+      ],
+      "properties": {
+        "architecture": {
+          "type": "string"
+        },
+        "cpu_model": {
+          "type": "string"
+        },
+        "logical_cores": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "memory_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "storage_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "storage_devices": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "connectivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interfaces",
+        "up",
+        "down",
+        "unknown"
+      ],
+      "properties": {
+        "interfaces": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "up": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "down": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

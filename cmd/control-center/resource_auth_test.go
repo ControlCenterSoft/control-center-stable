@@ -46,6 +46,7 @@ func newResourceAuthFixtureWithProductOptions(t *testing.T, productOptions ...pr
 		{ID: "operator-1", Username: "operator", DisplayName: "Operator", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 		{ID: "auditor-1", Username: "auditor", DisplayName: "Auditor", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 		{ID: "viewer-1", Username: "viewer", DisplayName: "Viewer", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
+		{ID: "siteviewer-1", Username: "siteviewer", DisplayName: "Site Viewer", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 		{ID: "unbound-1", Username: "unbound", DisplayName: "Unbound", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 	} {
 		if err := store.CreateUser(context.Background(), user); err != nil {
@@ -68,6 +69,7 @@ func newResourceAuthFixtureWithProductOptions(t *testing.T, productOptions ...pr
 		{SubjectID: "operator-1", RoleName: "operator", Scope: rbac.GlobalScope()},
 		{SubjectID: "auditor-1", RoleName: "auditor", Scope: rbac.GlobalScope()},
 		{SubjectID: "viewer-1", RoleName: "viewer", Scope: rbac.GlobalScope()},
+		{SubjectID: "siteviewer-1", RoleName: "viewer", Scope: rbac.Scope{Kind: rbac.ScopeSite, ID: "site-a"}},
 	} {
 		if err := authorizer.Bind(binding); err != nil {
 			t.Fatal(err)

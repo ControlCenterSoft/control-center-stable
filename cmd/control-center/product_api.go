@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 
 	"control-center/internal/agent"
 	agentapi "control-center/internal/agent/httpapi"
 	automationapi "control-center/internal/automation/httpapi"
+	"control-center/internal/buildinfo"
 	domainapi "control-center/internal/domain/httpapi"
 	identityapi "control-center/internal/identity/httpapi"
 	"control-center/internal/identity/rbac"
@@ -16,10 +18,13 @@ import (
 	lifecycleapi "control-center/internal/nodelifecycle/httpapi"
 	nodesapi "control-center/internal/nodes/httpapi"
 	pxeapi "control-center/internal/pxe/httpapi"
+	productui "control-center/internal/ui"
+	uiapi "control-center/internal/ui/httpapi"
 )
 
 type productHandlerConfig struct {
-	lifecycleProjection nodelifecycle.Projection
+	lifecycleProjection     nodelifecycle.Projection
+	infrastructureInventory productui.InfrastructureInventoryProvider
 }
 
 type productHandlerOption func(*productHandlerConfig)
@@ -28,6 +33,18 @@ func withNodeLifecycleProjection(projection nodelifecycle.Projection) productHan
 	return func(config *productHandlerConfig) {
 		if projection != nil {
 			config.lifecycleProjection = projection
+		}
+	}
+}
+
+// withInfrastructureInventoryProvider wires only a read model. The default
+// runtime intentionally leaves the endpoint absent until an authoritative
+// provider is configured, rather than exposing transitional registries as if
+// they were complete Sites/Nodes/Inventory evidence.
+func withInfrastructureInventoryProvider(provider productui.InfrastructureInventoryProvider) productHandlerOption {
+	return func(config *productHandlerConfig) {
+		if provider != nil {
+			config.infrastructureInventory = provider
 		}
 	}
 }
@@ -74,5 +91,53 @@ func newProductHandler(identity *identityapi.Server, options ...productHandlerOp
 	mux.Handle("/api/v1/agent/heartbeats", guard(rbac.PermissionAgentHeartbeatEvaluate, agentState))
 	mux.Handle("/api/v1/agent/nodes", guard(rbac.PermissionAgentEnrollmentNormalize, agentState))
 	mux.Handle("/api/v1/agent/nodes/", guard(rbac.PermissionAgentEnrollmentNormalize, agentState))
+	if config.infrastructureInventory != nil {
+		mux.Handle("GET /api/v1/ui/infrastructure", guard(rbac.PermissionResourcesRead, uiapi.InfrastructureHandler(config.infrastructureInventory)))
+		mux.Handle("GET /infrastructure", guard(rbac.PermissionResourcesRead, infrastructureWebHandler(config.infrastructureInventory)))
+	}
 	return mux
+}
+
+func infrastructureWebHandler(provider productui.InfrastructureInventoryProvider) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := identityapi.PrincipalFromContext(r.Context())
+		if !ok || provider == nil {
+			http.Error(w, "infrastructure inventory unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		view, err := provider.InfrastructureInventory(r.Context())
+		status := http.StatusOK
+		if err != nil || productui.ValidateInfrastructureInventory(view) != nil {
+			view = productui.InfrastructureInventory{
+				ContractVersion: productui.InfrastructureInventoryContractVersion,
+				State:           productui.InventoryViewUnavailable,
+				Sites:           []productui.SiteInventory{},
+			}
+			status = http.StatusServiceUnavailable
+		} else if view.State == productui.InventoryViewUnavailable {
+			status = http.StatusServiceUnavailable
+		}
+
+		var body bytes.Buffer
+		if err := identityapi.RenderInfrastructureInventory(
+			&body,
+			buildinfo.Version,
+			principal.Identity.DisplayName,
+			principal.Identity.Username,
+			view,
+		); err != nil {
+			http.Error(w, "infrastructure inventory unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		w.WriteHeader(status)
+		_, _ = w.Write(body.Bytes())
+	})
 }
