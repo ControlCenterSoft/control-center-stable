@@ -1,32 +1,44 @@
-# Control Center 0.3.1 release notes
+# Control Center 0.24.0 Stable
 
-Release status: stable
+Статус: **stable**.
 
-## Corrections
+Control Center 0.24.0 переводит актуальную официальную линию 0.24.0 в стабильный бинарный канал.
 
-- The overview API and browser page now report the runtime build version
-  instead of a stale hard-coded value.
-- Source-build version metadata now defaults to the same version as `VERSION`.
-- Database migrations are launched through a transient systemd service that
-  reads the service `EnvironmentFile` directly; installation no longer sources
-  that file in a privileged shell.
-- Database credential guidance now defines one logical password and its exact
-  raw-versus-percent-encoded representation.
+## Основные изменения стабильной линии
 
-## API compatibility
+- локальная аутентификация с обязательной сменой первоначального пароля;
+- сохранение пользовательского пароля администратора при обновлении;
+- защищённые сессии и RBAC self-introspection;
+- Audit и типизированные security boundaries;
+- Desired/Actual State, Changes/Jobs и проверяемые операции;
+- lifecycle/recovery contracts;
+- Inventory, Market, PXE, Automation, Domain и Integration foundations;
+- network/capacity/placement evidence contracts;
+- bounded-защита локального входа от brute force и credential spraying.
 
-This patch preserves the `/api/v1` contract from 0.3.0. Output evidence remains
-bounded and typed; unknown top-level or nested evidence fields are rejected.
+## Защита входа в 0.24.0
 
-## Database
+Для неуспешных попыток локального входа используются независимые account- и source-scoped границы. Неверный пароль, неизвестный пользователь и временно заблокированный вход сохраняют единый внешний ответ `invalid_credentials`, чтобы не раскрывать существование учётной записи или состояние защиты.
 
-There are no schema changes from 0.3.0. The migration floor remains
-`0004_change_execution_core.up.sql`; the checksum-tracked runner is idempotent.
-Back up the database before every upgrade.
+Состояние защиты ограничено по памяти и не хранит пароли, session token или token digest. Реализация 0.24.0 является process-local и не заявляется как cluster-wide rate limiting.
 
-## Known limitations
+## Стабильная квалификация
 
-- Installation and upgrade are operator-driven.
-- TLS termination is provided by the deployment environment.
-- The bootstrap administrator secret remains required at service startup and
-  must be protected as a long-lived secret.
+Перед публикацией стабильной версии подтверждены:
+
+- format/vet/unit/build проверки;
+- clean-install PostgreSQL 15, 16, 17 и 18;
+- поддержанный upgrade-path PostgreSQL 15, 16, 17 и 18;
+- PostgreSQL adapter/restart проверки на 15–18;
+- race detector;
+- проверка публичной границы на credentials/private-key material;
+- повторная проверка сформированного stable-tree;
+- воспроизводимая сборка Linux AMD64 и SHA-256 checksum.
+
+## Первый вход и обновление
+
+На чистой установке первоначальная учётная запись: `admin` / `admin`. Пароль необходимо сменить при первом входе; до этого обычная работа запрещена.
+
+При обновлении существующий пароль администратора сохраняется и не заменяется первоначальным паролем.
+
+Перед любым обновлением создавайте резервную копию PostgreSQL и конфигурации Control Center.
