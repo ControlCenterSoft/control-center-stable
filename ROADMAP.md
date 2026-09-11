@@ -1,154 +1,74 @@
-# Control Center — продуктовая дорожная карта и критерии готовности
+# Control Center — публичная дорожная карта и критерии готовности
 
 Статус: **CURRENT**
 
 ## 1. Текущий релизный статус
 
-Последний официально опубликованный canonical/source release Control Center — **0.25.0**. Полноценный **PUBLIC STABLE RELEASE 0.25.0** опубликован в официальном stable-канале [`ControlCenterSoft/control-center-stable`](https://github.com/ControlCenterSoft/control-center-stable) с актуальными stable/default branch, tag `v0.25.0`, официальным GitHub Release и предусмотренными artifacts/checksums/manifest/provenance.
+Текущий официальный **PUBLIC STABLE RELEASE — 0.26.0**. Версия 0.25.0 сохраняется как предыдущая стабильная ступень. Наличие кода или предварительной реализации последующей возможности не означает её пользовательскую доступность: capability считается опубликованной только после собственного qualification/release cycle.
 
-Версия **0.26.0** является текущим release candidate и не считается пользовательски опубликованной до завершения собственного release cycle. Наличие кода, контракта, ветки или предварительной версии не означает пользовательскую доступность.
+Public Stable 0.26.0 включает опубликованные ранее Identity/RBAC/Audit, Changes/Jobs, lifecycle/recovery contracts, Site/Network foundation, advisory Capacity Intelligence, Session Security Policy, read-only RBAC self-introspection, bounded protection локального входа, permission-gated bounded Audit Event Read и новую permission-gated read-only проверку целостности append-only Audit-цепочки. Audit Integrity работает fail-closed; compatibility migration поддерживает заявленные legacy PostgreSQL-схемы без переписывания ранее опубликованных migration-файлов.
 
-## 2. Уже опубликованные направления
+## 2. Основные продуктовые инварианты
 
-Опубликованная линия до 0.25.0 включает:
+Control Center — самостоятельный инфраструктурный продукт. Single-node является полноценным поддерживаемым режимом. Multi-node/HA расширяет продукт только для фактически реализованных и квалифицированных ролей/providers.
 
-- базовые Identity/RBAC/Audit и durable state boundaries;
-- Changes/Jobs и типизированную модель операций;
-- lifecycle/recovery contracts;
-- Site/Network foundation;
-- advisory Capacity Intelligence: forecast, what-if, placement advice, bottleneck/horizon/calibration и последующие resource-safety ограничения;
-- Session Security Policy;
-- read-only RBAC self-introspection текущей identity;
-- bounded process-local защиту локального входа от brute force и credential spraying;
-- permission-gated bounded read-only доступ к Audit events с bounded pagination, точными фильтрами, integrity validation и fail-closed Audit evidence.
+Для state-changing операций действует общий путь:
 
-Capacity-возможности остаются advisory-only и сами по себе не разрешают автоматическое изменение инфраструктуры.
+`Запрос → Валидация → Авторизация → План → Change → Job → типизированное действие → post-condition verification → Actual State → Audit → recovery/rollback при необходимости`.
 
-## 3. Ближайшая кандидатная линия
+False Success запрещён: факт запуска команды или job не является доказательством успешного результата.
 
-Текущий candidate **0.26.0** — Audit Integrity: permission-gated read-only проверка целостности Audit с fail-closed поведением для persistence и HTTP boundary. До завершения qualification и официальной публикации этот scope остаётся кандидатным и не должен описываться как доступный в public stable.
+## 3. Аутентификация
 
-Следующие capability обязаны сохранять совместимость с опубликованными Identity/RBAC, Change/Job, Audit, recovery и API boundaries. Нельзя объявлять кандидатную функцию опубликованной до официального релиза.
+После чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. При первом входе пароль необходимо сменить; до успешной смены обычная работа запрещена. Обновление сохраняет установленный пользователем пароль и не сбрасывает его к первоначальному значению.
 
-## 4. Single-node, multi-node и HA
+## 4. Core и Market
 
-Single-node является полноценным поддерживаемым способом использования продукта.
+**Core** содержит общие платформенные функции: Identity/RBAC, Desired/Actual State, Changes/Jobs, Node/Role/Lifecycle, Managed Network, Monitoring/Health, Audit, Backup/Recovery contracts, Capacity Planner foundation и системные API/security boundaries.
 
-Целевая multi-node/HA модель включает:
+**Market** содержит устанавливаемые инфраструктурные возможности. Для каждого модуля обязательны identity, compatibility/dependencies, permissions/capabilities, network/storage requirements, capacity profile, lifecycle, backup/recovery semantics и legal/compliance metadata. Приоритетные семейства: Directory Services, DNS/DHCP, PXE Windows/Linux, Software Automation Windows/Linux, fleet/software inventory, File Services, Monitoring и Backup.
 
-- controller/worker/data/repository/telemetry/backup/edge роли там, где они действительно нужны;
-- maintenance, drain, replacement и decommission;
-- контролируемый перенос ролей и сервисов;
-- quorum/fencing/split-brain protection для применимых stateful профилей;
-- controlled switchover/failover только после фактической сертификации;
-- восстановление после потери одного или нескольких узлов;
-- проверяемое восстановление данных.
+## 5. Lifecycle, backup и recovery
 
-Наличие архитектурного контракта HA не является доказательством production failover. Возможность считается поддержанной только после соответствующих failure/recovery tests и публикации версии.
+Для узлов предусмотрены enrollment, active, maintenance, drain, replacement и decommission. Для опасной операции всегда должны быть известны: что изменится, риск/blast radius, preflight, post-condition verification и rollback/recovery.
 
-## 5. Lifecycle узлов и сервисов
+Stateful workload нельзя переносить как stateless сервис. Требуются provider-specific migration/recovery semantics и проверяемое состояние данных. Backup без подтверждённого restore не считается доказанной готовностью восстановления. Для критичных данных необходимы регулярные restore drills.
 
-Для узлов применяются состояния и операции enrollment, active, maintenance, drain, replacement и decommission/remove.
+## 6. Managed Network
 
-Для опасной операции обязательны:
+Network Management является частью Core и развивается как first-class subsystem: multi-NIC, WAN/LAN, zones, VLAN/bonding где поддерживается, routing, DNS/NTP, firewall, staged configuration changes, connectivity checks и automatic rollback.
 
-- описание изменения;
-- риск и blast radius;
-- preflight;
-- проверка результата;
-- rollback/recovery или безопасная компенсация.
+WAN+LAN не превращает узел в маршрутизатор автоматически. NAT/port-forwarding/external publication включаются только явным действием и должны иметь собственные authorization/Audit/recovery boundaries.
 
-Stateful workload нельзя переносить как stateless сервис: необходим provider-specific migration/recovery adapter и проверяемое состояние данных.
+## 7. Capacity Intelligence
 
-## 6. Backup, restore и recovery
+Capacity Planner должен отвечать на три вопроса: сколько ресурсов безопасно доступно сейчас, когда закончится резерв и что рекомендуется изменить. Целевая модель включает workload profiles, CPU/RAM/storage/DB/network analysis, telemetry, growth trends, safe capacity, bottlenecks, forecasts, what-if и рекомендации по добавлению/переносу ролей и сервисов.
 
-Recovery является отдельной продуктовой подсистемой. Целевая модель включает Recovery Points, integrity metadata, изолированный restore, PostgreSQL backup/PITR для поддерживаемых профилей, object-level recovery, измеряемые RPO/RTO и регулярные restore drills.
+Capacity recommendations остаются advisory-only, пока отдельная опубликованная policy не разрешит безопасное автоматическое применение для конкретного workload.
 
-Backup без подтверждённого restore не считается доказанной готовностью восстановления.
+## 8. Security и коммерческая готовность
 
-## 7. Managed Network
+Для каждой capability должны быть определены RBAC, stale-state/idempotency semantics, negative/failure/security tests, Audit, recovery, upgrade/migration и пользовательская документация. Для новых/изменяемых Market contracts требуется license/SPDX expression, authoritative source, distribution mode, commercial/redistribution disposition, notice/source-offer requirements и versioned evidence digest.
 
-Network Management является частью Core. Целевая модель должна поддерживать multi-NIC, назначаемые зоны, VLAN/bonding там, где доступно, routing, DNS/NTP, firewall policy и staged changes с connectivity verification.
+Публичная документация не должна содержать внутреннюю инфраструктуру или процессы разработки, runner-инфраструктуру, внутренние адреса, секреты, ключи, персональные данные, внутренние repository/branch details или названия внутренних AI/reviewer-процессов.
 
-NAT/port-forwarding включаются только явно. WAN+LAN конфигурация не должна автоматически превращать узел в маршрутизатор. Ошибочное сетевое изменение должно иметь automatic rollback или заранее определённый recovery path.
+## 9. Критерии готовности capability
 
-## 8. Core и Market
+Capability готова только если:
 
-Core содержит обязательные платформенные функции:
+1. определены object/data/API contracts;
+2. определены RBAC permissions/scopes;
+3. state-changing функция имеет Desired/Actual semantics;
+4. известна failure/recovery model;
+5. проверены validation, stale-state protection и idempotency;
+6. определены health/observability/Audit semantics;
+7. выполнены negative/failure/security tests по уровню риска;
+8. определён upgrade/migration path;
+9. stateful data имеют backup/restore semantics;
+10. пользовательская и эксплуатационная документация соответствует фактическому поведению.
 
-- Identity/RBAC;
-- Desired/Actual State;
-- Changes/Jobs;
-- Node/Role/Lifecycle;
-- Network;
-- Monitoring/Health;
-- Audit;
-- Backup/Recovery contracts;
-- Capacity Planner foundation;
-- системные API и общие security boundaries.
+## 10. Критерии готовности релиза
 
-Market содержит устанавливаемые инфраструктурные возможности. Для каждого модуля обязательны identity, compatibility/dependency metadata, permissions/capabilities, network/storage requirements, capacity profile, lifecycle и внутренний legal/compliance metadata block: license/SPDX expression, authoritative source, distribution mode, commercial/redistribution disposition, notice/source-offer requirements и versioned evidence digest. При clean status этот механизм не должен добавлять отдельный обязательный пользовательский workflow.
+Релиз не считается завершённым при наличии release-blocking defect, отсутствии проверяемого acceptance, неготовом install/upgrade/restore path, несоответствии release notes коду, выдаче будущей функции за опубликованную или наличии неразрешённой high-risk security/recovery проблемы.
 
-Приоритетные семейства Market:
-
-- Directory Services с поддерживаемыми providers, включая Samba AD и FreeIPA там, где применимо;
-- DNS/DHCP;
-- PXE Windows/Linux;
-- Software Automation Windows/Linux;
-- IT Asset Inventory и Software Inventory/Compliance;
-- File Services;
-- Monitoring;
-- Backup и другие инфраструктурные providers через единый module contract.
-
-Полный lifecycle модуля: Install → Configure → Health → Update → Migrate/Drain → Backup → Restore → Remove. Failover добавляется только для provider, где он реально поддержан и проверен.
-
-## 9. Capacity Intelligence
-
-Целевой Capacity Planner должен отвечать на три вопроса: сколько ресурсов безопасно доступно сейчас, когда закончится резерв и что конкретно рекомендуется изменить.
-
-Направления развития:
-
-- workload profiles;
-- nonlinear capacity curves;
-- DB/storage/network bottleneck analysis;
-- self-calibration по фактической telemetry;
-- прогноз исчерпания резерва;
-- what-if для устройств и сервисов;
-- рекомендации по добавлению/переносу ролей и увеличению ресурсов;
-- confidence score и failure reserve.
-
-Автоматическое применение рекомендации допускается только в отдельно опубликованной policy-driven границе и только для явно разрешённых workloads.
-
-## 10. Аутентификация после чистой установки
-
-Для публичного stable **0.25.0** после чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход обязан привести к смене пароля; до смены обычная работа запрещена. При обновлении пользовательский пароль сохраняется и не сбрасывается к первоначальному значению.
-
-Для первой подходящей будущей версии зафиксировано изменение bootstrap-механизма: clean install должен генерировать уникальный криптографически стойкий одноразовый пароль для `admin`, хранить его локально только в `/root/control-center-bootstrap-password` с `root:root` и mode `0600`, не выводить credential в logs/Audit/telemetry/support/public artifacts, требовать смену до обычной работы и удалять bootstrap-файл после успешной смены. Обновление не должно генерировать новый bootstrap credential и не должно сбрасывать пользовательский пароль. Эта будущая политика не должна приписываться уже выпущенному 0.25.0.
-
-## 11. Критерии готовности capability
-
-Capability готова только если определены и проверены:
-
-1. object/data/API contract;
-2. RBAC permissions/scopes;
-3. Desired/Actual semantics для изменяющей state функции;
-4. failure/recovery model;
-5. validation, stale-state protection и idempotency;
-6. health/observability/audit semantics;
-7. negative/failure/security tests по уровню риска;
-8. upgrade/migration path;
-9. backup/restore semantics для stateful data;
-10. пользовательская и эксплуатационная документация;
-11. соответствие фактической реализации заявленному поведению.
-
-## 12. Критерии готовности релиза
-
-Релиз нельзя считать завершённым, если остаётся release-blocking defect, отсутствует проверяемый acceptance, не определён install/upgrade/restore path для заявленной области, release notes расходятся с кодом, пользовательская документация выдаёт будущую функцию за опубликованную либо остаётся неразрешённая high-risk security/recovery проблема.
-
-Canonical/source release и PUBLIC STABLE RELEASE — разные стадии. Публично доступной stable-версией считается только релиз, для которого подтверждены официальный stable/default branch, version tag, GitHub Release с `draft=false` и `prerelease=false`, а также предусмотренные public artifacts/manifest/checksums/provenance. Сам canonical release недостаточен.
-
-## 13. Границы продукта
-
-Control Center — самостоятельный инфраструктурный продукт для администраторов. Другие продукты не являются обязательными runtime-компонентами Control Center.
-
-Продуктовая документация не должна содержать внутренние процессы разработки, служебные адреса, секреты, ключи, персональные данные или иную внутреннюю operational information.
+Public Stable подтверждается точной release identity, официальным version tag/release, предусмотренными artifacts/checksums/manifests/provenance и квалификацией соответствующего дерева. Следующие версии не считаются доступными заранее.
