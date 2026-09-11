@@ -4,9 +4,9 @@
 
 ## 1. Текущий релизный статус
 
-Текущий официальный **PUBLIC STABLE RELEASE — 0.26.0**. Версия 0.25.0 сохраняется как предыдущая стабильная ступень. Наличие кода или предварительной реализации последующей возможности не означает её пользовательскую доступность: capability считается опубликованной только после собственного qualification/release cycle.
+Текущий официальный **PUBLIC STABLE RELEASE — 0.27.0**. Версия 0.26.0 сохраняется как предыдущая стабильная ступень. Наличие кода или предварительной реализации последующей возможности не означает её пользовательскую доступность: capability считается опубликованной только после собственного qualification/release cycle.
 
-Public Stable 0.26.0 включает опубликованные ранее Identity/RBAC/Audit, Changes/Jobs, lifecycle/recovery contracts, Site/Network foundation, advisory Capacity Intelligence, Session Security Policy, read-only RBAC self-introspection, bounded protection локального входа, permission-gated bounded Audit Event Read и новую permission-gated read-only проверку целостности append-only Audit-цепочки. Audit Integrity работает fail-closed; compatibility migration поддерживает заявленные legacy PostgreSQL-схемы без переписывания ранее опубликованных migration-файлов.
+Public Stable 0.27.0 добавляет детерминированную read-only оценку актуальности подтверждённых изолированных restore drill. Freshness assessment связывается с точной restore metadata и digest проверочного evidence, возвращает bounded состояние `FRESH`, `STALE` или `UNVERIFIABLE` и работает fail-closed при невалидном или неподтверждаемом evidence. Возможность advisory/read-only и не выдаёт полномочий на backup, restore, fencing, retry или изменение production state. Опубликованные SQL migrations предыдущего Stable не изменяются.
 
 ## 2. Основные продуктовые инварианты
 
@@ -20,7 +20,7 @@ False Success запрещён: факт запуска команды или jo
 
 ## 3. Аутентификация
 
-После чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. При первом входе пароль необходимо сменить; до успешной смены обычная работа запрещена. Обновление сохраняет установленный пользователем пароль и не сбрасывает его к первоначальному значению.
+После чистой установки действует обязательный bootstrap-flow локального администратора с принудительной сменой первоначального пароля до обычной работы. Обновление сохраняет установленный пользователем пароль и не возвращает систему к bootstrap-состоянию. Точные первоначальные учётные данные определены в инструкции установки соответствующего Stable.
 
 ## 4. Core и Market
 
@@ -50,7 +50,7 @@ Capacity recommendations остаются advisory-only, пока отдельн
 
 Для каждой capability должны быть определены RBAC, stale-state/idempotency semantics, negative/failure/security tests, Audit, recovery, upgrade/migration и пользовательская документация. Для новых/изменяемых Market contracts требуется license/SPDX expression, authoritative source, distribution mode, commercial/redistribution disposition, notice/source-offer requirements и versioned evidence digest.
 
-Публичная документация не должна содержать внутреннюю инфраструктуру или процессы разработки, runner-инфраструктуру, внутренние адреса, секреты, ключи, персональные данные, внутренние repository/branch details или названия внутренних AI/reviewer-процессов.
+Публичная документация не должна содержать внутреннюю инфраструктуру или процессы разработки, служебные адреса, секреты, ключи, персональные данные или внутренние технические детали, не относящиеся к эксплуатации продукта.
 
 ## 9. Критерии готовности capability
 
