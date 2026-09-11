@@ -4,7 +4,18 @@ Control Center is an infrastructure-management control plane with durable
 identity, policy, audit, configuration revision, change, job, and worker
 boundaries.
 
-Version `0.3.1` is the current stable release.
+## Release channels
+
+This repository is the **stable binary channel**. Version `0.3.1` is the
+current stable binary release.
+
+The newer official source-release line is published separately in
+[`ControlCenterSoft/control-center-development`](https://github.com/ControlCenterSoft/control-center-development),
+where the latest officially published source release is `0.24.0`.
+
+Do not assume that features introduced after `0.3.1` in the source-release
+line are available in this stable binary channel until a corresponding stable
+build is separately qualified and published here.
 
 ## Included
 
