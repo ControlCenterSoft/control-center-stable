@@ -1,13 +1,26 @@
-# Control Center 0.26.0 Stable
+# Control Center 0.27.0 Stable
 
 Статус релиза: **PUBLIC STABLE**.
 
-Control Center 0.26.0 добавляет permission-gated read-only проверку целостности append-only Audit-цепочки. Успешный ответ возвращает только ограниченное агрегированное evidence, обнаруживает повреждение данных и разрывы цепочки, работает fail-closed при ошибках чтения, декодирования, hash/link verification и записывает успешную проверку в Audit до возврата результата.
+## Главное изменение
 
-Также добавлена migration `0010_legacy_03_schema_compatibility` для поддерживаемых legacy PostgreSQL-схем. Ранее опубликованные migration-файлы не переписываются.
+Control Center 0.27.0 добавляет детерминированную read-only модель актуальности подтверждённых изолированных restore drill. Система связывает freshness assessment с точной версией restore metadata и digest проверочного evidence, формирует bounded snapshot состояния `FRESH`, `STALE` или `UNVERIFIABLE` и повторно проверяет lineage при изменении исходных данных.
 
-Stable qualification подтвердила provenance/public-safety, format/vet/unit/contracts/build, clean-install и supported-upgrade для PostgreSQL 15–18, PostgreSQL adapter/restart checks, race detection, детерминированную Linux AMD64 упаковку и финальный stable gate.
+Это исключает повторное использование старого формально корректного evidence после изменения restore state или появления более нового успешного restore drill.
 
-Чистая установка создаёт `admin` / `admin` с обязательной сменой пароля при первом входе. Обновление сохраняет существующий пароль администратора и не сбрасывает его к первоначальному значению.
+## Информационная безопасность
 
-В публичных release notes не должны раскрываться внутренние процессы разработки, runner-инфраструктура, внутренние адреса, секреты или названия внутренних AI/reviewer-процессов.
+- новые контракты работают fail-closed для невалидного, подменённого, устаревшего или неподтверждаемого evidence;
+- функции являются advisory/read-only и не предоставляют полномочий на backup, restore, fencing, retry или изменение production state;
+- не добавлены новые сетевые listeners, credential flow, хранение секретов или внешние runtime-зависимости;
+- опубликованные SQL migrations предыдущего Stable защищены от изменения byte-for-byte.
+
+## Совместимость и обновление
+
+Версия 0.27.0 не добавляет SQL migration и сохраняет существующие данные и установленный пароль администратора при обновлении. Проверены clean-install и supported-upgrade сценарии на PostgreSQL 15, 16, 17 и 18, restart/persistence boundaries, race/static/unit/build проверки и воспроизводимая упаковка Linux AMD64.
+
+## Аутентификация
+
+При чистой установке действует обязательный bootstrap-flow локального администратора с принудительной сменой первоначального пароля до обычной работы. Обновление не сбрасывает пользовательский пароль.
+
+Публичные release notes не должны раскрывать внутренние процессы разработки, служебную инфраструктуру, внутренние адреса, секреты или персональные данные.
