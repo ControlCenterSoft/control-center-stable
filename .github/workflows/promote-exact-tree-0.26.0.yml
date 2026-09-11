@@ -1,0 +1,160 @@
+name: Promote exact Control Center 0.26.0 tree
+
+on:
+  push:
+    branches:
+      - promotion/exact-tree-0.26.0
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  VERSION: 0.26.0
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  UPSTREAM_TAG: v0.26.0
+  UPSTREAM_SHA: 23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15
+  QUALIFICATION_RUN_ID: '34627052547'
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify completed independent qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > /tmp/run.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('/tmp/run.json',encoding='utf-8'))
+          assert r.get('status') == 'completed', r.get('status')
+          assert r.get('conclusion') == 'success', r.get('conclusion')
+          assert r.get('head_sha') == '9579600d610da18f9641f80af987ca5da846cd20', r.get('head_sha')
+          print('QUALIFICATION=PASS')
+          PY
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          path: stable
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout immutable canonical source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          test "$(git -C source rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test "$(tr -d '\n' < source/VERSION)" = "$VERSION"
+          git -C source tag --points-at HEAD | grep -Fx "$UPSTREAM_TAG"
+          test ! -f source/.env
+          test ! -f source/.env.staging
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Promote exact product tree and stable metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rsync -a --delete \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/GEMINI.md' \
+            --exclude='/config/' \
+            --exclude='/deploy/' \
+            --exclude='/scripts/' \
+            --exclude='/INSTALL.md' \
+            --exclude='/RELEASE_NOTES.md' \
+            --exclude='/RELEASE-MANIFEST.json' \
+            source/ stable/
+          rm -f stable/GEMINI.md
+          sed -i 's/0\.25\.0/0.26.0/g' stable/INSTALL.md
+          cat > stable/README.md <<'EOF'
+          # Control Center 0.26.0 Stable
+
+          Control Center is a self-contained infrastructure-management control plane. This repository is the official stable distribution channel.
+
+          ## Current stable release
+
+          **0.26.0** is the current stable release. It is promoted from canonical source tag `ControlCenterSoft/control-center-development@v0.26.0`, commit `23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15`, after independent stable qualification.
+
+          0.26.0 adds permission-gated read-only verification of append-only Audit-chain integrity with fail-closed persistence and HTTP boundaries, plus a new compatibility migration for supported legacy PostgreSQL schemas.
+
+          ## Authentication after a clean install
+
+          A clean installation creates local user `admin` with initial password `admin`. The first successful login requires a password change before normal operation is allowed. Upgrading an existing installation preserves the administrator password.
+
+          ## Start here
+
+          - [Installation and upgrade](INSTALL.md)
+          - [Stable release notes](RELEASE_NOTES.md)
+          - [Security](SECURITY.md)
+          - [Architecture](ARCHITECTURE.md)
+          - [Release manifest](RELEASE-MANIFEST.json)
+          EOF
+          cat > stable/RELEASE_NOTES.md <<'EOF'
+          # Control Center 0.26.0 Stable
+
+          Release status: **stable**.
+
+          Control Center 0.26.0 adds permission-gated read-only verification of append-only Audit-chain integrity. The successful response exposes only bounded aggregate evidence, detects tampering or broken links, fails closed on read/decode/hash/link errors, and records successful verification in Audit before returning success.
+
+          The release also adds migration `0010_legacy_03_schema_compatibility` for supported legacy PostgreSQL schemas without rewriting previously published migration files.
+
+          Independent stable qualification passed provenance/public-safety checks, format/vet/unit/contracts/build, PostgreSQL 15–18 clean-install and supported-upgrade scenarios, PostgreSQL adapter/restart checks, race detection, deterministic Linux AMD64 packaging and the final stable qualification gate.
+
+          Clean install uses `admin` / `admin` with mandatory password change on first login. Upgrade preserves the existing administrator password.
+          EOF
+          cat > stable/RELEASE-MANIFEST.json <<'EOF'
+          {
+            "schema": "control-center.stable-release.v1",
+            "version": "0.26.0",
+            "channel": "stable",
+            "canonical_repository": "ControlCenterSoft/control-center-development",
+            "canonical_tag": "v0.26.0",
+            "canonical_commit": "23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15",
+            "qualification_repository": "ControlCenterSoft/control-center-stable",
+            "qualification_run_id": 34627052547,
+            "qualification_result": "success"
+          }
+          EOF
+          mkdir -p stable/docs
+          cp stable/RELEASE_NOTES.md stable/docs/RELEASE_0.26.0_RU.md
+
+      - name: Verify promoted tree without repeating full qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd stable
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          grep -q '0.26.0' README.md
+          grep -q '0.26.0' INSTALL.md
+          grep -q '0.26.0' RELEASE_NOTES.md
+          go test ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+          if grep -RInE --exclude-dir=.git --exclude='*.sum' '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|AKIA[0-9A-Z]{16})' .; then
+            echo 'credential-like material detected' >&2
+            exit 1
+          fi
+
+      - name: Commit promoted stable tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git -C stable config user.name "github-actions[bot]"
+          git -C stable config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C stable add -A
+          git -C stable commit -m "release: promote Control Center 0.26.0 public stable tree"
+          git -C stable push origin HEAD:main
+          sha="$(git -C stable rev-parse HEAD)"
+          git -C stable push --force origin "$sha:refs/heads/release/0.26.0"
+          echo "PROMOTED_SHA=$sha" >> "$GITHUB_ENV"
