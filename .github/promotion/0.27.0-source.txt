@@ -1,0 +1,6 @@
+version=0.27.0
+source_tag=v0.27.0
+source_sha=e5a39243e16d8540b79822dc85d8544f24d12725
+qualification_run_id=34637701427
+qualification_head_sha=0c5be26fc267cd45e8e7cee3fbd9205e60491277
+purpose=public-stable-exact-tree-promotion
