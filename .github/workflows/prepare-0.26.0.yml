@@ -1,0 +1,157 @@
+name: Prepare Control Center Stable 0.26.0 tree
+
+on:
+  push:
+    branches:
+      - promotion/stable-0.26.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-control-center-stable-0.26.0
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.26.0
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  UPSTREAM_TAG: v0.26.0
+  UPSTREAM_SHA: 23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15
+  QUALIFICATION_RUN_ID: '34627052547'
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: promotion/stable-0.26.0
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify qualification run and exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID --jq .conclusion)" = success
+          git clone --quiet --branch "$UPSTREAM_TAG" --depth 1 "https://github.com/$UPSTREAM_REPOSITORY.git" /tmp/source
+          test "$(git -C /tmp/source rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test "$(tr -d '\n' < /tmp/source/VERSION)" = "$VERSION"
+
+      - name: Promote exact source into Stable distribution tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='GEMINI.md' \
+            --exclude='config/' \
+            --exclude='deploy/' \
+            --exclude='scripts/' \
+            --exclude='README.md' \
+            --exclude='INSTALL.md' \
+            --exclude='RELEASE_NOTES.md' \
+            --exclude='RELEASE-MANIFEST.json' \
+            /tmp/source/ ./
+          rm -f GEMINI.md
+          cat > README.md <<'EOF'
+          # Control Center 0.26.0 Stable
+
+          Это официальный публичный Stable-канал Control Center. Версия 0.26.0 соответствует неизменяемому исходному выпуску `ControlCenterSoft/control-center-development@v0.26.0`, commit `23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15`.
+
+          Чистая установка создаёт локального пользователя `admin` с паролем `admin`; при первом входе обязательна смена пароля. Обновление не сбрасывает уже заданный пароль администратора.
+
+          Основные документы: [установка и обновление](INSTALL.md), [безопасность](SECURITY.md), [архитектура](ARCHITECTURE.md), [примечания к выпуску](RELEASE_NOTES.md).
+          EOF
+          cat > INSTALL.md <<'EOF'
+          # Control Center 0.26.0 — установка и обновление
+
+          Требования: Linux AMD64 с systemd, PostgreSQL 15–18 и `psql`. В производственной сети используйте TLS-терминацию.
+
+          ## Чистая установка
+          1. Проверьте SHA-256 загруженного архива и распакуйте его в новый каталог выпуска.
+          2. Настройте PostgreSQL и защищённый файл окружения из штатного примера.
+          3. Перед применением миграций к непустой БД создайте резервную копию.
+          4. Примените миграции через `scripts/migrate.sh`, установите systemd unit и запустите сервис.
+          5. Первый вход: `admin` / `admin`; до обычной работы задайте новый пароль.
+
+          ## Обновление
+          Создайте резервную копию БД и конфигурации, остановите сервис, разверните 0.26.0 в новый каталог, примените штатные forward-миграции, переключите активный каталог и выполните health/readiness-проверки. Существующий пароль `admin` при обновлении сохраняется и не заменяется первоначальным значением.
+
+          При неуспешной проверке остановите новый экземпляр и используйте подтверждённый план отката с предыдущим каталогом приложения и резервной копией БД, если она необходима.
+          EOF
+          cat > RELEASE_NOTES.md <<'EOF'
+          # Control Center 0.26.0 Stable
+
+          Статус: **Public Stable**.
+
+          Выпуск усиливает целостность аудита: обязательные данные аудита обрабатываются fail-closed, добавлена совместимость с наследуемой UUID-схемой и миграция `0010_legacy_03_schema_compatibility`.
+
+          Независимая Stable-квалификация подтверждает provenance/public-safety, fmt/vet, unit/contract, сборку, PostgreSQL 15–18 для clean install и supported upgrade, adapters/restart recovery, race detector и воспроизводимую Linux AMD64 упаковку.
+          EOF
+          cat > RELEASE-MANIFEST.json <<EOF
+          {
+            "schema": "control-center.stable-release.v1",
+            "version": "$VERSION",
+            "channel": "stable",
+            "upstream_repository": "$UPSTREAM_REPOSITORY",
+            "upstream_tag": "$UPSTREAM_TAG",
+            "upstream_commit": "$UPSTREAM_SHA",
+            "qualification_run_id": $QUALIFICATION_RUN_ID
+          }
+          EOF
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify candidate Stable tree
+        env:
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          test ! -e GEMINI.md
+          make fmt-check
+          go vet ./...
+          go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
+          go test ./internal/persistence/postgres -run '^TestPostgres' -count=1
+          go test -race -count=1 ./...
+          make build
+          SOURCE_DATE_EPOCH="$(git -C /tmp/source show -s --format=%ct HEAD)" COMMIT="$UPSTREAM_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+
+      - name: Commit prepared Stable tree to promotion branch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf dist
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: prepare Control Center 0.26.0 public stable tree" \
+            -m "Qualified source: $UPSTREAM_REPOSITORY@$UPSTREAM_TAG ($UPSTREAM_SHA)" \
+            -m "Qualification run: $QUALIFICATION_RUN_ID"
+          git push origin HEAD:promotion/stable-0.26.0
