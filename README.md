@@ -1,21 +1,23 @@
 # Control Center 0.26.0 Stable
 
-Control Center is a self-contained infrastructure-management control plane. This repository is the official stable distribution channel.
+Control Center — самостоятельная система централизованного управления серверной и пользовательской ИТ‑инфраструктурой. Этот репозиторий является официальным каналом стабильных выпусков.
 
-## Current stable release
+## Текущий стабильный релиз
 
-**0.26.0** is the current stable release. It is promoted from canonical source tag `ControlCenterSoft/control-center-development@v0.26.0`, commit `23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15`, after independent stable qualification.
+**0.26.0** — текущий PUBLIC STABLE RELEASE. Он продвинут из canonical/source tag `ControlCenterSoft/control-center-development@v0.26.0`, commit `23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15`, после отдельной stable qualification.
 
-0.26.0 adds permission-gated read-only verification of append-only Audit-chain integrity with fail-closed persistence and HTTP boundaries, plus a new compatibility migration for supported legacy PostgreSQL schemas.
+Версия 0.26.0 добавляет permission-gated read-only проверку целостности append-only Audit-цепочки с fail-closed поведением на persistence/HTTP границах, а также compatibility migration для поддерживаемых legacy PostgreSQL-схем без изменения ранее опубликованных migration-файлов.
 
-## Authentication after a clean install
+## Аутентификация после чистой установки
 
-A clean installation creates local user `admin` with initial password `admin`. The first successful login requires a password change before normal operation is allowed. Upgrading an existing installation preserves the administrator password.
+Чистая установка создаёт локального пользователя `admin` с первоначальным паролем `admin`. После первого успешного входа пароль необходимо сменить до обычной работы. Обновление существующей установки сохраняет установленный администратором пароль и не сбрасывает его к первоначальному значению.
 
-## Start here
+## С чего начать
 
-- [Installation and upgrade](INSTALL.md)
-- [Stable release notes](RELEASE_NOTES.md)
-- [Security](SECURITY.md)
-- [Architecture](ARCHITECTURE.md)
-- [Release manifest](RELEASE-MANIFEST.json)
+- [Установка и обновление](INSTALL.md)
+- [Примечания к стабильному релизу](RELEASE_NOTES.md)
+- [Безопасность](SECURITY.md)
+- [Архитектура](ARCHITECTURE.md)
+- [Манифест релиза](RELEASE-MANIFEST.json)
+
+Публичные материалы Control Center не должны содержать внутреннюю инфраструктуру разработки, runner-инфраструктуру, внутренние адреса, секреты, private keys, персональные данные или названия внутренних AI/reviewer-процессов.
