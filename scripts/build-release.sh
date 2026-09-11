@@ -31,7 +31,8 @@ mkdir -p \
   "$stage/$bundle/config" \
   "$stage/$bundle/deploy/systemd" \
   "$stage/$bundle/migrations" \
-  "$stage/$bundle/scripts"
+  "$stage/$bundle/scripts" \
+  "$stage/$bundle/docs"
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_binary" build \
   -trimpath -buildvcs=false \
@@ -41,13 +42,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_binary" build \
     -X control-center/internal/buildinfo.BuildTime=$build_time" \
   -o "$stage/$bundle/bin/control-center" ./cmd/control-center
 
-cp README.md INSTALL.md RELEASE_NOTES.md SECURITY.md VERSION \
-  RELEASE-MANIFEST.json "$stage/$bundle/"
-cp api/openapi-0.2.0.yaml api/openapi-0.3.yaml "$stage/$bundle/api/"
+cp README.md INSTALL.md RELEASE_NOTES.md SECURITY.md ARCHITECTURE.md ROADMAP.md \
+  VERSION RELEASE-MANIFEST.json "$stage/$bundle/"
+cp -a api/. "$stage/$bundle/api/"
 cp config/control-center.env.example "$stage/$bundle/config/"
 cp deploy/systemd/control-center.service "$stage/$bundle/deploy/systemd/"
-cp migrations/*.sql "$stage/$bundle/migrations/"
+find migrations -maxdepth 1 -type f \( -name '*.sql' -o -name 'README.md' \) \
+  -exec cp {} "$stage/$bundle/migrations/" \;
 cp scripts/migrate.sh "$stage/$bundle/scripts/"
+if [[ -d docs ]]; then
+  cp -a docs/. "$stage/$bundle/docs/"
+fi
 chmod 0755 "$stage/$bundle/bin/control-center" "$stage/$bundle/scripts/migrate.sh"
 
 artifact="$dist_dir/$bundle-linux-amd64.tar.gz"
