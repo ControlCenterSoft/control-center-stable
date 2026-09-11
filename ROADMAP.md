@@ -1,206 +1,151 @@
-# Дорожная карта Control Center
+# Control Center — продуктовая дорожная карта и критерии готовности
 
-Статус: **Distributed Core Contracts 0.4 завершены; первый незакрытый этап — 0.5 Multi-node Operations и Lifecycle**.
+Статус: **CURRENT**
 
-Версионные номера ниже — целевые архитектурные пакеты, а не обещание календарной даты. Конкретный релиз публикуется только после прохождения его acceptance gates.
+## 1. Текущий релизный статус
 
-## 0. Текущая точка
+Последний официально опубликованный исходный релиз Control Center — **0.24.0**. Текущий стабильный бинарный релиз — **0.24.0**.
 
-В `main` уже существуют фундаментальные элементы Core: PostgreSQL persistence, Identity/RBAC/Audit, Changes/Jobs, типизированные действия, Agent enrollment/heartbeat, Inventory, Market manifests, PXE/Automation/Domain/Integration foundations и Web/API state surfaces. Contract Checkpoint 0.4 закрыт: распределённые envelope/object contracts, roles/scopes/sites/zones, Desired/Actual State, Node lifecycle, Market Manifest v2, Network, Capacity и Recovery metadata имеют совместимые schemas, migration path и qualification gates.
+Следующая версия после 0.24.0 является кандидатной до завершения qualification и официальной публикации. Наличие кода, контракта или предварительной версии не означает пользовательскую доступность.
 
-Текущие реализации Agent/Market/Node schemas считаются **переходными v1-контрактами**. Их не нужно выбрасывать: они должны быть расширены до принятой распределённой модели.
+## 2. Уже опубликованные направления
 
-Правило следующего шага: дальнейшие Task Packets выбираются из 0.5, начиная с Agent runtime/bootstrap и role assignment. Они обязаны использовать контракты 0.4 и сохранять green CI.
+Опубликованная линия до 0.24.0 включает:
 
-## 1. 0.4 — Distributed Core Contracts
+- базовые Identity/RBAC/Audit и durable state boundaries;
+- Changes/Jobs и типизированную модель операций;
+- lifecycle/recovery contracts;
+- Site/Network foundation;
+- advisory Capacity Intelligence: forecast, what-if, placement advice, bottleneck/horizon/calibration и последующие resource-safety ограничения;
+- Session Security Policy;
+- read-only RBAC self-introspection текущей identity;
+- bounded process-local защиту локального входа от brute force и credential spraying.
 
-Цель: заложить данные и API так, чтобы последующие Site/HA/Capacity/Network функции не потребовали ломать Core.
+Capacity-возможности остаются advisory-only и сами по себе не разрешают автоматическое изменение инфраструктуры.
 
-Обязательные задачи:
+## 3. Ближайшая кандидатная линия
 
-- Node Role model: Management/Controller/Worker/Data/Consensus/Repository/Telemetry/Backup/Edge;
-- Site, Management Zone, hierarchical scopes и delegated RBAC boundaries;
-- `object_id/scope_id/owner_scope/generation/resource_version`;
-- расширение Agent enrollment: roles, site/zone, hardware/network inventory, identity/certificate metadata;
-- Desired State / Actual State ownership contract;
-- Node lifecycle state machine;
-- Market Manifest v2 schema с lifecycle/capacity/recovery/network/dependency metadata;
-- Network Interface/Zone data model, пока без обязательной маршрутизации;
-- CapacityObservation/CapacityProfile/Constraint/Recommendation schemas;
-- RecoveryPoint/Backup/Restore metadata contracts;
-- PostgreSQL migrations и API/OpenAPI для новых сущностей;
-- обратная совместимость с текущими 0.3.x объектами или явная миграция.
+Ближайшая кандидатная работа после 0.24.0 должна развивать только подтверждённые совместимые контракты текущей платформы. Для 0.25.0 целевой пользовательский scope — permission-gated bounded read-only доступ к Audit events с fail-closed security/audit boundaries.
 
-Exit gate:
+Любая следующая capability должна сохранять совместимость с опубликованными Identity/RBAC, Change/Job, Audit, recovery и API boundaries. Нельзя объявлять кандидатную функцию опубликованной до официального релиза.
 
-- clean install + upgrade from supported 0.3.x;
-- old Node/Market objects migrate deterministically;
-- API/schema tests PASS;
-- ни один новый module family не создаёт собственные роли, scheduler, backup или network model.
+## 4. Single-node, multi-node и HA
 
-## 2. 0.5 — Multi-node Operations и Lifecycle
+Single-node является полноценным поддерживаемым способом использования продукта.
 
-Цель: один Controller безопасно управляет несколькими Worker/Managed Nodes.
+Целевая multi-node/HA модель включает:
 
-Обязательные задачи:
+- controller/worker/data/repository/telemetry/backup/edge роли там, где они действительно нужны;
+- maintenance, drain, replacement и decommission;
+- контролируемый перенос ролей и сервисов;
+- quorum/fencing/split-brain protection для применимых stateful профилей;
+- controlled switchover/failover только после фактической сертификации;
+- восстановление после потери одного или нескольких узлов;
+- проверяемое восстановление данных.
 
-- Control Center Agent runtime и role assignment;
-- bootstrap command + one-time token;
-- remote bootstrap через SSH/WinRM;
-- Offline Enrollment Bundle;
-- package/repository cache;
-- placement planner v1;
-- Node Lifecycle Manager: Drain/Maintenance/Replace/Remove;
-- Upgrade Orchestrator: dependency graph, preflight, rolling order, update rings, maintenance window;
-- безопасное service migration для stateless workloads;
-- Data Node move plan только через replica/switchover abstraction;
-- Capacity Planner MVP;
-- Synthetic CC Agent load harness и базовые Capacity Profiles.
+Наличие архитектурного контракта HA не является доказательством production failover. Возможность считается поддержанной только после соответствующих failure/recovery tests и публикации версии.
 
-Exit gate:
+## 5. Lifecycle узлов и сервисов
 
-- потеря/перезапуск Worker не создаёт false Success;
-- Drain/Replace проверены failure injection;
-- update canary может автоматически остановить rollout;
-- Capacity Planner показывает safe capacity и bottleneck с указанной confidence.
+Для узлов применяются состояния и операции enrollment, active, maintenance, drain, replacement и decommission/remove.
 
-## 3. 0.6 — Site Autonomy и Network Foundation
+Для опасной операции обязательны:
 
-Цель: автономные подразделения и корректная работа при WAN loss.
+- описание изменения;
+- риск и blast radius;
+- preflight;
+- проверка результата;
+- rollback/recovery или безопасная компенсация.
 
-Обязательные задачи:
+Stateful workload нельзя переносить как stateless сервис: необходим provider-specific migration/recovery adapter и проверяемое состояние данных.
 
-- Site Controller;
-- многоуровневая hierarchy без жёсткого Regional role;
-- локальный Site State Store;
-- Control Center State Synchronization Protocol;
-- top-down Desired State / bottom-up Actual State, ownership/conflict rules;
-- local policy overrides только в делегированных границах;
-- offline local UI/jobs/market operations;
-- Site repository cache;
-- Network & Security Manager runtime;
-- WAN/LAN/MANAGEMENT/DMZ/CLUSTER/STORAGE/BACKUP zones;
-- nftables backend;
-- safe staged IP/route/firewall changes + connectivity auto-rollback;
-- Edge Gateway: routing/NAT/port-forwarding только после явного назначения;
-- network metrics включаются в Capacity Planner.
+## 6. Backup, restore и recovery
 
-Exit gate:
+Recovery является отдельной продуктовой подсистемой. Целевая модель включает Recovery Points, integrity metadata, изолированный restore, PostgreSQL backup/PITR для поддерживаемых профилей, object-level recovery, измеряемые RPO/RTO и регулярные restore drills.
 
-- Site продолжает разрешённую работу при разрыве WAN;
-- reconnect не создаёт silent conflict;
-- WAN+LAN без Edge Gateway не маршрутизируются;
-- ошибочное firewall/network изменение автоматически откатывается.
+Backup без подтверждённого restore не считается доказанной готовностью восстановления.
 
-## 4. 0.7 — HA Data/Control Plane и Disaster Recovery
+## 7. Managed Network
 
-Цель: доказанная отказоустойчивость, а не декларация HA.
+Network Management является частью Core. Целевая модель должна поддерживать multi-NIC, назначаемые зоны, VLAN/bonding там, где доступно, routing, DNS/NTP, firewall policy и staged changes с connectivity verification.
 
-Обязательные задачи:
+NAT/port-forwarding включаются только явно. WAN+LAN конфигурация не должна автоматически превращать узел в маршрутизатор. Ошибочное сетевое изменение должно иметь автоматический rollback или заранее определённый recovery path.
 
-- Controller cluster membership и quorum;
-- etcd consensus/DCS layer;
-- PostgreSQL HA через Patroni provider;
-- profiles 1 / 2+Witness / 3 / 5 Controllers;
-- controlled leader/primary switchover;
-- fencing и split-brain protection;
-- Backup Repository Node;
-- PostgreSQL base backup + WAL/PITR provider;
-- Recovery Manager;
-- object-level recovery/Recycle Bin/change history;
-- high-impact automatic Recovery Point;
-- RPO/RTO policies;
-- scheduled restore drills;
-- full Controller/Site rebuild from Desired State;
-- degraded safe/read mode при потере quorum.
+## 8. Core и Market
 
-Exit gate:
+Core содержит обязательные платформенные функции:
 
-- Controller/DB node loss PASS;
-- majority/quorum loss не допускает split-brain;
-- PITR реально восстанавливается в изолированном контуре;
-- случайно удалённые объекты можно восстановить без обязательного отката всей production DB;
-- RPO/RTO измеряются фактом тестового восстановления.
+- Identity/RBAC;
+- Desired/Actual State;
+- Changes/Jobs;
+- Node/Role/Lifecycle;
+- Network;
+- Monitoring/Health;
+- Audit;
+- Backup/Recovery contracts;
+- Capacity Planner foundation;
+- системные API и общие security boundaries.
 
-## 5. 0.8 — Market Platform v2 и Enterprise Providers
+Market содержит устанавливаемые инфраструктурные возможности. Для каждого модуля обязательны identity, compatibility/dependency metadata, permissions/capabilities, network/storage requirements, capacity profile и lifecycle.
 
-Цель: единый зрелый lifecycle для всех Market workloads.
+Приоритетные семейства Market:
 
-Сначала существующие модули переводятся на Manifest v2:
-
-- Directory Services;
+- Directory Services с поддерживаемыми providers, включая Samba AD и FreeIPA там, где применимо;
 - DNS/DHCP;
 - PXE Windows/Linux;
 - Software Automation Windows/Linux;
-- Inventory/Compliance;
+- IT Asset Inventory и Software Inventory/Compliance;
 - File Services;
-- Monitoring.
+- Monitoring;
+- Backup и другие инфраструктурные providers через единый module contract.
 
-После этого добавляются корпоративные providers:
+Полный lifecycle модуля: Install → Configure → Health → Update → Migrate/Drain → Backup → Restore → Remove. Failover добавляется только для provider, где он реально поддержан и проверен.
 
-### Mail & Groupware
+## 9. Capacity Intelligence
 
-Mail, Webmail, calendars, contacts, anti-spam, SPF/DKIM/DMARC, TLS, directory integration, HA/capacity/recovery. Первый provider profile: Postfix + Dovecot + Rspamd + SOGo; альтернативный backend допускается через общий контракт.
+Целевой Capacity Planner должен отвечать на три вопроса: сколько ресурсов безопасно доступно сейчас, когда закончится резерв и что конкретно рекомендуется изменить.
 
-### 1C:Enterprise Server
+Направления развития:
 
-1C server/cluster/RAS/information bases, отдельная DB, Web publishing, license-aware deployment, monitoring/capacity, HA, backup/restore/migration. Control Center не распространяет чужую лицензию и использует предоставленный пользователем лицензированный дистрибутив.
-
-### Secure Web Gateway
-
-Explicit/PAC и Transparent/TPROXY режимы, directory/device identity, category filtering, schedules, quotas, bandwidth control, accounting/reports, optional TLS inspection, pluggable AV/ICAP/DLP, HA/capacity. Первый provider profile: Squid 7.x + nftables/TPROXY + traffic control.
-
-Exit gate для каждого модуля:
-
-`Install → Configure → Health → Capacity → Update → Migrate/Drain → Backup → Restore → Failover (если заявлен) → Remove`
-
-Все стадии имеют positive/failure/security tests.
-
-## 6. 0.9 — Capacity Intelligence и масштабирование
-
-Цель: перейти от мониторинга к прогнозированию.
-
-- Device Workload Profiles;
-- service-specific nonlinear capacity curves;
+- workload profiles;
+- nonlinear capacity curves;
 - DB/storage/network bottleneck analysis;
-- self-calibration по реальной телеметрии;
-- trend forecast и срок исчерпания резерва;
-- what-if: число устройств, интервалы telemetry, новый Market workload, изменение WAN/storage;
-- рекомендованный hardware profile для новой роли;
-- one-click approved placement/migration;
-- capacity test catalog для официальных модулей;
-- confidence score и безопасный резерв с учётом отказа узла.
+- self-calibration по фактической telemetry;
+- прогноз исчерпания резерва;
+- what-if для устройств и сервисов;
+- рекомендации по добавлению/переносу ролей и увеличению ресурсов;
+- confidence score и failure reserve.
 
-Exit gate:
+Автоматическое применение рекомендации допускается только в отдельно опубликованной policy-driven границе и только для явно разрешённых workloads.
 
-Capacity Planner должен отвечать на три вопроса: **сколько безопасно обслуживаем сейчас, когда закончится резерв, что конкретно изменить**.
+## 10. Аутентификация после чистой установки
 
-## 7. 1.0 — Policy-driven Operations
+Для стабильного выпуска **0.24.0** после чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход обязан привести к смене пароля; до смены обычная работа запрещена. При обновлении пользовательский пароль сохраняется и не сбрасывается к первоначальному значению.
 
-Только после накопления доказательной базы 0.5–0.9 допускаются:
+## 11. Критерии готовности capability
 
-- policy-driven automatic placement;
-- automatic rebalance для явно разрешённых workloads;
-- controlled automatic recovery;
-- automatic scale recommendations/actions в заданных пределах;
-- mature multi-site/HA/DR certification;
-- production capacity baselines.
+Capability готова только если определены и проверены:
 
-Автоматическое перемещение stateful workloads без provider-specific migration/recovery adapter запрещено.
+1. object/data/API contract;
+2. RBAC permissions/scopes;
+3. Desired/Actual semantics для изменяющей state функции;
+4. failure/recovery model;
+5. validation, stale-state protection и idempotency;
+6. health/observability/audit semantics;
+7. negative/failure/security tests по уровню риска;
+8. upgrade/migration path;
+9. backup/restore semantics для stateful data;
+10. пользовательская и эксплуатационная документация;
+11. соответствие фактической реализации заявленному поведению.
 
-## 8. Порядок внутри каждого релиза
+## 12. Критерии готовности релиза
 
-Для любой новой capability:
+Релиз нельзя считать завершённым, если остаётся release-blocking defect, отсутствует проверяемый acceptance, не определён install/upgrade/restore path для заявленной области, release notes расходятся с кодом, пользовательская документация выдаёт будущую функцию за опубликованную либо остаётся неразрешённая high-risk security/recovery проблема.
 
-1. contract/data/API/RBAC;
-2. failure/recovery model;
-3. implementation;
-4. observability/audit;
-5. load/failure/security tests;
-6. upgrade/migration path;
-7. documentation/runbook;
-8. release evidence.
+Публикация исходного релиза сама по себе не означает автоматическое развёртывание в production.
 
-## 9. Что означает команда «продолжай разработку»
+## 13. Границы продукта
 
-Если пользователь не задаёт более узкую цель, следующая работа выбирается из **первого незакрытого этапа этого ROADMAP**, с учётом текущего `main` и активных PR. Нельзя перепрыгивать к более позднему Enterprise/HA модулю, создавая контракт, который противоречит незакрытому фундаментальному этапу.
+Control Center — самостоятельный инфраструктурный продукт для администраторов. Другие продукты не являются обязательными runtime-компонентами Control Center.
+
+Продуктовая документация не должна содержать внутренние процессы разработки, служебные адреса, секреты, ключи, персональные данные или иную внутреннюю operational information.

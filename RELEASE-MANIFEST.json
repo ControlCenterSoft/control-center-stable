@@ -1,13 +1,8 @@
 {
   "schema": "control-center.stable-release.v1",
-  "product": "Control Center",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "channel": "stable",
-  "platform": "linux-amd64",
-  "entrypoint": "bin/control-center",
-  "source_release_tag": "v0.24.0",
-  "source_commit": "5e6a6dcc41f9d81f028dab5291e87059a1dfeea3",
-  "artifact": "control-center-0.24.0-linux-amd64.tar.gz",
-  "checksum": "control-center-0.24.0-linux-amd64.tar.gz.sha256",
-  "qualification": "passed"
+  "canonical_tag": "v0.25.0",
+  "canonical_commit": "1663799629e713e9c2432d90c3b4fd0856d89ad4",
+  "qualified_candidate_commit": "179f7b13315d86e01bd25c0e5be9619d79c5a631"
 }

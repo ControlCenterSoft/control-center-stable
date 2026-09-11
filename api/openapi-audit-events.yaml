@@ -1,0 +1,137 @@
+openapi: 3.0.3
+info:
+  title: Control Center Audit Event Read API
+  version: 0.1.0
+  description: >-
+    Bounded, permission-gated read contract for append-only Control Center audit
+    events. This contract is read-only and does not modify audit history.
+paths:
+  /api/v1/audit/events:
+    get:
+      operationId: listAuditEvents
+      summary: List security audit events
+      description: >-
+        Returns audit events newest first. Access requires an authenticated
+        session with a completed first-login password change and the global
+        audit.events.read permission. Filters are exact matches. Pagination uses
+        an opaque cursor; clients must not parse or construct cursors.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor returned as next_cursor by a previous response.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: action
+          in: query
+          required: false
+          description: Exact audit action filter.
+          schema:
+            type: string
+            maxLength: 192
+        - name: outcome
+          in: query
+          required: false
+          description: Exact audit outcome filter.
+          schema:
+            type: string
+            maxLength: 32
+        - name: actor_id
+          in: query
+          required: false
+          description: Exact actor identifier filter.
+          schema:
+            type: string
+            maxLength: 128
+        - name: subject_id
+          in: query
+          required: false
+          description: Exact subject identifier filter.
+          schema:
+            type: string
+            maxLength: 256
+      responses:
+        '200':
+          description: Bounded page of audit events.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Always no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventPage'
+        '400':
+          description: Invalid, ambiguous, repeated, unsupported, or unbounded query.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Password change is required or audit.events.read is denied.
+        '503':
+          description: Audit storage/read or required read-evidence recording is unavailable.
+components:
+  schemas:
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next older page; omitted when no page remains.
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - occurred_at
+        - action
+        - outcome
+        - hash
+      properties:
+        id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          maxLength: 192
+        outcome:
+          type: string
+          maxLength: 32
+        actor_id:
+          type: string
+        subject_id:
+          type: string
+        source_ip:
+          type: string
+        correlation_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+          description: Redacted structured event details; credentials and bearer values are not exposed.
+        previous_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'

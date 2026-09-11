@@ -25,6 +25,7 @@ type Server struct {
 	auth          *auth.Service
 	authorizer    rbac.Checker
 	audit         audit.Logger
+	auditReader   audit.Reader
 	cookieName    string
 	secureCookies bool
 	mux           *http.ServeMux
@@ -43,8 +44,9 @@ func NewServer(authService *auth.Service, authorizer rbac.Checker, log audit.Log
 	if cookieName == "" {
 		cookieName = DefaultSessionCookie
 	}
+	auditReader, _ := log.(audit.Reader)
 	s := &Server{
-		auth: authService, authorizer: authorizer, audit: log,
+		auth: authService, authorizer: authorizer, audit: log, auditReader: auditReader,
 		cookieName: cookieName, secureCookies: !config.InsecureCookiesForDevelopment,
 		mux: http.NewServeMux(),
 	}
@@ -63,6 +65,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/v1/auth/sessions/revoke-all", s.Authenticate(s.RequirePasswordCurrent(http.HandlerFunc(s.revokeAllSessions))))
 	s.mux.Handle("GET /api/v1/identity/self", s.Authenticate(s.RequirePasswordCurrent(http.HandlerFunc(s.identitySelf))))
 	s.mux.Handle("GET /api/v1/system/overview", s.Authenticate(s.Require(rbac.PermissionOverviewRead, rbac.GlobalScope())(http.HandlerFunc(s.overviewAPI))))
+	s.mux.Handle("GET /api/v1/audit/events", s.Authenticate(s.Require(rbac.PermissionAuditRead, rbac.GlobalScope())(http.HandlerFunc(s.auditEvents))))
 
 	s.mux.HandleFunc("GET /login", s.webLogin)
 	s.mux.HandleFunc("POST /web/login", s.webLoginSubmit)

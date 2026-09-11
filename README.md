@@ -1,39 +1,21 @@
-# Control Center 0.24.0 Stable
+# Control Center 0.25.0 Stable
 
-Control Center — самостоятельная платформа централизованного управления серверной и пользовательской ИТ‑инфраструктурой с типизированной, проверяемой и аудируемой моделью изменений.
+Control Center is a self-contained infrastructure-management control plane. This repository is the official stable distribution channel.
 
-## Текущая стабильная версия
+## Current stable release
 
-**Control Center 0.24.0** — текущий стабильный выпуск.
+**0.25.0** is the current stable release. It is mapped to canonical release `v0.25.0` at commit `1663799629e713e9c2432d90c3b4fd0856d89ad4` and to qualified candidate commit `179f7b13315d86e01bd25c0e5be9619d79c5a631`.
 
-Репозиторий содержит код стабильной версии и необходимые файлы установки, обновления, миграций базы данных и запуска сервиса.
+The public stable tree contains the approved product source plus stable-only packaging, installation and service files. Public downloadable artifacts are published with SHA-256 checksums and provenance metadata.
 
-## Основные возможности стабильной линии
+## Authentication after a clean install
 
-- локальная аутентификация и защищённые сессии;
-- обязательная смена первоначального пароля после чистой установки;
-- deny-by-default RBAC и self-introspection;
-- аудит значимых действий;
-- Desired State / Actual State и типизированные операции;
-- Changes/Jobs и проверка результата изменяющих операций;
-- lifecycle/recovery contracts;
-- Inventory, Market, PXE, Automation, Domain и Integration foundations;
-- network/capacity/placement evidence contracts;
-- bounded-защита локального входа от password brute force и credential spraying;
-- PostgreSQL-backed durable state.
+A clean installation creates local user `admin` with initial password `admin`. The first successful login requires a password change before normal operation is allowed. Upgrading an existing installation does not reset the administrator password.
 
-## Первый вход
+## Start here
 
-После чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. При первом входе пароль необходимо сменить; до смены обычная работа с системой запрещена.
-
-При обновлении существующий пароль администратора сохраняется и не сбрасывается на `admin`.
-
-## Начало работы
-
-- [Установка и обновление](INSTALL.md)
-- [Описание выпуска](RELEASE_NOTES.md)
-- [Безопасность](SECURITY.md)
-- [Архитектура](ARCHITECTURE.md)
-- [Манифест выпуска](RELEASE-MANIFEST.json)
-
-Публикуемые бинарные пакеты сопровождаются SHA-256 checksum. Перед установкой проверяйте целостность загруженного пакета.
+- [Installation and upgrade](INSTALL.md)
+- [Stable release notes](RELEASE_NOTES.md)
+- [Security](SECURITY.md)
+- [Architecture](ARCHITECTURE.md)
+- [Release manifest](RELEASE-MANIFEST.json)
