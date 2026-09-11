@@ -1,0 +1,5 @@
+version=0.27.0
+upstream_repository=ControlCenterSoft/control-center-development
+upstream_tag=v0.27.0
+upstream_sha=e5a39243e16d8540b79822dc85d8544f24d12725
+purpose=independent-public-stable-qualification
