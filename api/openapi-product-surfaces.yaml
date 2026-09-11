@@ -1,0 +1,188 @@
+openapi: 3.1.0
+info:
+  title: Control Center Product Planning API fragment
+  version: 0.3.0
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v1/nodes/enrollment/plan:
+    post:
+      operationId: planNodeEnrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrollmentRequest' }
+      responses:
+        '200':
+          description: Validated deterministic node enrollment plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrollmentPlan' }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/automation/plan:
+    post:
+      operationId: planAutomationOperation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutomationRequest' }
+      responses:
+        '200':
+          description: Validated typed automation plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutomationPlan' }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/pxe/plan:
+    post:
+      operationId: planPXEDeployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PXEProfile' }
+      responses:
+        '200':
+          description: Validated Windows or Linux PXE deployment plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PXEPlan' }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/market/manifests:
+    get:
+      operationId: listMarketManifests
+      responses:
+        '200':
+          description: Built-in Market module manifests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, count]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/MarketManifest' } }
+                  count: { type: integer, minimum: 0 }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v1/market/manifests/{manifestId}:
+    get:
+      operationId: getMarketManifest
+      parameters:
+        - name: manifestId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '200':
+          description: Built-in Market module manifest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarketManifest' }
+        '404': { description: Manifest not found }
+        default: { $ref: '#/components/responses/APIError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  responses:
+    APIError:
+      description: Stable API error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    EnrollmentRequest:
+      type: object
+      required: [nodeId, displayName, osFamily, architecture]
+      additionalProperties: false
+      properties:
+        nodeId: { type: string, minLength: 1 }
+        displayName: { type: string, minLength: 1 }
+        osFamily: { type: string, enum: [linux, windows] }
+        architecture: { type: string, enum: [amd64, arm64] }
+        capabilities:
+          type: array
+          items: { type: string, enum: [directory-services, pxe, automation, inventory, monitoring] }
+    EnrollmentPlan:
+      type: object
+      required: [nodeId, osFamily, architecture, capabilities, steps]
+      properties:
+        nodeId: { type: string }
+        osFamily: { type: string }
+        architecture: { type: string }
+        capabilities: { type: array, items: { type: string } }
+        steps: { type: array, items: { $ref: '#/components/schemas/PlanStep' } }
+    AutomationRequest:
+      type: object
+      required: [target, operation, arguments]
+      additionalProperties: false
+      properties:
+        target:
+          type: object
+          required: [id, platform]
+          additionalProperties: false
+          properties:
+            id: { type: string, minLength: 1 }
+            platform: { type: string, enum: [linux, windows] }
+        operation: { type: string, enum: [service.inspect, service.ensure, package.ensure] }
+        arguments: { type: object, additionalProperties: { type: string } }
+    AutomationPlan:
+      type: object
+      required: [targetId, adapter, action, inputs]
+      properties:
+        targetId: { type: string }
+        adapter: { type: string, enum: [ansible.linux, ansible.windows] }
+        action: { type: string }
+        inputs: { type: object, additionalProperties: { type: string } }
+    PXEProfile:
+      type: object
+      required: [name, osFamily, architecture]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        osFamily: { type: string, enum: [linux, windows] }
+        architecture: { type: string, enum: [amd64, arm64] }
+        unattended: { type: boolean }
+        postInstallAutomation: { type: boolean }
+    PXEPlan:
+      type: object
+      required: [profileName, osFamily, architecture, steps]
+      properties:
+        profileName: { type: string }
+        osFamily: { type: string }
+        architecture: { type: string }
+        steps: { type: array, items: { $ref: '#/components/schemas/PlanStep' } }
+    PlanStep:
+      type: object
+      required: [order, action]
+      properties:
+        order: { type: integer, minimum: 1 }
+        action: { type: string, minLength: 1 }
+    MarketManifest:
+      type: object
+      required: [id, version, capabilities, platforms, lifecycle]
+      properties:
+        id: { type: string }
+        version: { type: string, pattern: '^[0-9]+\.[0-9]+\.[0-9]+$' }
+        capabilities: { type: array, items: { type: string } }
+        platforms: { type: array, items: { type: string } }
+        providers: { type: array, items: { type: string } }
+        lifecycle: { type: array, items: { type: string, enum: [install, upgrade, remove] } }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }

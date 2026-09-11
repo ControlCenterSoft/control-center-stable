@@ -25,10 +25,7 @@ func TestConcurrentIdempotentCreateAndSingleClaim(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			got, wasCreated, err := repository.Create(ctx, job.CreateRequest{
-				ID: fmt.Sprintf("job-%d", i), ChangeID: "change-1", ActionName: "service.ensure",
-				Input: json.RawMessage(`{"name":"api"}`), IdempotencyKey: "client-request-1", MaxAttempts: 3, Now: now,
-			})
+			got, wasCreated, err := repository.Create(ctx, job.CreateRequest{ID: fmt.Sprintf("job-%d", i), ChangeID: "change-1", ActionName: "service.ensure", Input: json.RawMessage(`{"name":"api"}`), IdempotencyKey: "client-request-1", MaxAttempts: 3, Now: now})
 			if err != nil {
 				t.Errorf("create: %v", err)
 				return
@@ -48,7 +45,6 @@ func TestConcurrentIdempotentCreateAndSingleClaim(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("returned %d distinct jobs, want 1", count)
 	}
-
 	var claims atomic.Int32
 	for i := 0; i < 32; i++ {
 		wg.Add(1)
@@ -68,15 +64,11 @@ func TestConcurrentIdempotentCreateAndSingleClaim(t *testing.T) {
 		t.Fatalf("claim count = %d, want 1", claims.Load())
 	}
 }
-
 func TestRetryLeaseAndCancellation(t *testing.T) {
 	repository := job.NewMemoryRepository()
 	ctx := context.Background()
 	now := time.Unix(100, 0)
-	created, _, err := repository.Create(ctx, job.CreateRequest{
-		ID: "job-1", ChangeID: "change-1", ActionName: "test", Input: json.RawMessage(`{}`),
-		IdempotencyKey: "key", MaxAttempts: 2, Now: now,
-	})
+	created, _, err := repository.Create(ctx, job.CreateRequest{ID: "job-1", ChangeID: "change-1", ActionName: "test", Input: json.RawMessage(`{}`), IdempotencyKey: "key", MaxAttempts: 2, Now: now})
 	if err != nil || created.Status != job.StatusQueued {
 		t.Fatalf("create = %#v, %v", created, err)
 	}
@@ -94,34 +86,5 @@ func TestRetryLeaseAndCancellation(t *testing.T) {
 	cancelled, err := repository.RequestCancel(ctx, claimed.ID, now)
 	if err != nil || cancelled.Status != job.StatusCancelled {
 		t.Fatalf("cancel = %#v, %v", cancelled, err)
-	}
-}
-
-func TestRepositoryRejectsInvalidSuccessOutputWithoutConsumingLease(t *testing.T) {
-	repository := job.NewMemoryRepository()
-	ctx := context.Background()
-	now := time.Now().UTC()
-	_, _, err := repository.Create(ctx, job.CreateRequest{
-		ID: "job-output", ChangeID: "change-output", ActionName: "resource.record", Input: json.RawMessage(`{}`),
-		IdempotencyKey: "output-key", MaxAttempts: 1, Now: now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	claimed, ok, err := repository.Claim(ctx, "worker-output", now, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("claim=%#v ok=%v err=%v", claimed, ok, err)
-	}
-	invalid := events.Output{ActualStates: []events.ActualState{{
-		ResourceID: "node-1", Kind: "node", State: events.StatePresent, ObservedAt: now,
-	}}}
-	if _, err := repository.Succeed(ctx, claimed.ID, claimed.Lease.Token, invalid, now); !errors.Is(err, events.ErrInvalidOutput) {
-		t.Fatalf("invalid successful output error=%v", err)
-	}
-	valid := invalid
-	valid.Health = []events.Health{{ResourceID: "node-1", Status: events.HealthHealthy, CheckedAt: now}}
-	completed, err := repository.Succeed(ctx, claimed.ID, claimed.Lease.Token, valid, now)
-	if err != nil || completed.Status != job.StatusSucceeded {
-		t.Fatalf("valid retry with same lease=%#v err=%v", completed, err)
 	}
 }

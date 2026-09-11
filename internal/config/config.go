@@ -10,42 +10,50 @@ import (
 )
 
 const (
-	defaultListenAddress     = ":8080"
-	defaultReadTimeout       = 15 * time.Second
-	defaultReadHeaderTimeout = 5 * time.Second
-	defaultWriteTimeout      = 30 * time.Second
-	defaultIdleTimeout       = 60 * time.Second
-	defaultShutdownTimeout   = 20 * time.Second
-	defaultMaxHeaderBytes    = 1 << 20
+	defaultListenAddress          = ":8080"
+	defaultReadTimeout            = 15 * time.Second
+	defaultReadHeaderTimeout      = 5 * time.Second
+	defaultWriteTimeout           = 30 * time.Second
+	defaultIdleTimeout            = 60 * time.Second
+	defaultShutdownTimeout        = 20 * time.Second
+	defaultMaxHeaderBytes         = 1 << 20
+	defaultAuthSessionTTL         = 8 * time.Hour
+	defaultAuthSessionIdleTimeout = 2 * time.Hour
+	minAuthSessionDuration        = time.Minute
+	maxAuthSessionTTL             = 7 * 24 * time.Hour
 )
 
 type Config struct {
-	ListenAddress     string
-	Environment       string
-	LogLevel          string
-	ResourcesFile     string
-	DatabaseURL       string
-	ReadTimeout       time.Duration
-	ReadHeaderTimeout time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
-	ShutdownTimeout   time.Duration
-	MaxHeaderBytes    int
+	ListenAddress          string
+	Environment            string
+	LogLevel               string
+	ResourcesFile          string
+	DatabaseURL            string
+	ReadTimeout            time.Duration
+	ReadHeaderTimeout      time.Duration
+	WriteTimeout           time.Duration
+	IdleTimeout            time.Duration
+	ShutdownTimeout        time.Duration
+	MaxHeaderBytes         int
+	AuthSessionTTL         time.Duration
+	AuthSessionIdleTimeout time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		ListenAddress:     envOrDefault("CC_LISTEN_ADDR", defaultListenAddress),
-		Environment:       strings.ToLower(envOrDefault("CC_ENVIRONMENT", "development")),
-		LogLevel:          strings.ToLower(envOrDefault("CC_LOG_LEVEL", "info")),
-		ResourcesFile:     strings.TrimSpace(os.Getenv("CC_RESOURCES_FILE")),
-		DatabaseURL:       strings.TrimSpace(os.Getenv("CC_DATABASE_URL")),
-		ReadTimeout:       defaultReadTimeout,
-		ReadHeaderTimeout: defaultReadHeaderTimeout,
-		WriteTimeout:      defaultWriteTimeout,
-		IdleTimeout:       defaultIdleTimeout,
-		ShutdownTimeout:   defaultShutdownTimeout,
-		MaxHeaderBytes:    defaultMaxHeaderBytes,
+		ListenAddress:          envOrDefault("CC_LISTEN_ADDR", defaultListenAddress),
+		Environment:            strings.ToLower(envOrDefault("CC_ENVIRONMENT", "development")),
+		LogLevel:               strings.ToLower(envOrDefault("CC_LOG_LEVEL", "info")),
+		ResourcesFile:          strings.TrimSpace(os.Getenv("CC_RESOURCES_FILE")),
+		DatabaseURL:            strings.TrimSpace(os.Getenv("CC_DATABASE_URL")),
+		ReadTimeout:            defaultReadTimeout,
+		ReadHeaderTimeout:      defaultReadHeaderTimeout,
+		WriteTimeout:           defaultWriteTimeout,
+		IdleTimeout:            defaultIdleTimeout,
+		ShutdownTimeout:        defaultShutdownTimeout,
+		MaxHeaderBytes:         defaultMaxHeaderBytes,
+		AuthSessionTTL:         defaultAuthSessionTTL,
+		AuthSessionIdleTimeout: defaultAuthSessionIdleTimeout,
 	}
 
 	var err error
@@ -65,6 +73,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.MaxHeaderBytes, err = intFromEnv("CC_MAX_HEADER_BYTES", cfg.MaxHeaderBytes); err != nil {
+		return Config{}, err
+	}
+	if cfg.AuthSessionTTL, err = durationFromEnv("CC_AUTH_SESSION_TTL", cfg.AuthSessionTTL); err != nil {
+		return Config{}, err
+	}
+	if cfg.AuthSessionIdleTimeout, err = durationFromEnv("CC_AUTH_SESSION_IDLE_TIMEOUT", cfg.AuthSessionIdleTimeout); err != nil {
 		return Config{}, err
 	}
 
@@ -94,6 +108,12 @@ func (c Config) Validate() error {
 	}
 	if c.MaxHeaderBytes < 4096 || c.MaxHeaderBytes > 16<<20 {
 		return fmt.Errorf("CC_MAX_HEADER_BYTES must be between 4096 and 16777216: %d", c.MaxHeaderBytes)
+	}
+	if c.AuthSessionTTL < minAuthSessionDuration || c.AuthSessionTTL > maxAuthSessionTTL {
+		return fmt.Errorf("CC_AUTH_SESSION_TTL must be between %s and %s: %s", minAuthSessionDuration, maxAuthSessionTTL, c.AuthSessionTTL)
+	}
+	if c.AuthSessionIdleTimeout < minAuthSessionDuration || c.AuthSessionIdleTimeout > c.AuthSessionTTL {
+		return fmt.Errorf("CC_AUTH_SESSION_IDLE_TIMEOUT must be between %s and CC_AUTH_SESSION_TTL (%s): %s", minAuthSessionDuration, c.AuthSessionTTL, c.AuthSessionIdleTimeout)
 	}
 	return nil
 }

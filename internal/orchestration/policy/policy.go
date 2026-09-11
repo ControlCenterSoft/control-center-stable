@@ -76,13 +76,9 @@ type EvaluationInput struct {
 	Risk        Risk
 	Permissions []string
 }
-
 type Evaluator interface {
 	Evaluate(EvaluationInput) (Decision, error)
 }
-
-// ThresholdEvaluator is a deterministic baseline policy. Integrations can
-// replace it while retaining Decision as the stable domain contract.
 type ThresholdEvaluator struct {
 	PolicyID           string
 	ApprovalPermission string
@@ -103,18 +99,7 @@ func (e ThresholdEvaluator) Evaluate(in EvaluationInput) (Decision, error) {
 	case RiskCritical:
 		required = 2
 	}
-	decision := Decision{
-		Effect:   EffectAllow,
-		Risk:     in.Risk,
-		Reason:   "risk threshold policy satisfied",
-		PolicyID: e.PolicyID,
-		Requirement: ApprovalRequirement{
-			Minimum:           required,
-			Permission:        e.ApprovalPermission,
-			DistinctActors:    true,
-			ProhibitRequester: required > 0,
-		},
-	}
+	decision := Decision{Effect: EffectAllow, Risk: in.Risk, Reason: "risk threshold policy satisfied", PolicyID: e.PolicyID, Requirement: ApprovalRequirement{Minimum: required, Permission: e.ApprovalPermission, DistinctActors: true, ProhibitRequester: required > 0}}
 	return decision, decision.Validate()
 }
 
@@ -153,13 +138,11 @@ func CheckApprovals(requester string, requirement ApprovalRequirement, approvals
 	}
 	return nil
 }
-
 func contains(values []string, wanted string) bool {
 	copy := sortedCopy(values)
 	i := sort.SearchStrings(copy, wanted)
 	return i < len(copy) && copy[i] == wanted
 }
-
 func sortedCopy(values []string) []string {
 	copy := append([]string(nil), values...)
 	sort.Strings(copy)

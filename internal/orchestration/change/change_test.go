@@ -16,10 +16,7 @@ func TestChangeApprovalAndStateMachine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision := policy.Decision{
-		Effect: policy.EffectAllow, Risk: policy.RiskHigh, Reason: "approved path", PolicyID: "p1",
-		Requirement: policy.ApprovalRequirement{Minimum: 1, Permission: "changes.approve", DistinctActors: true, ProhibitRequester: true},
-	}
+	decision := policy.Decision{Effect: policy.EffectAllow, Risk: policy.RiskHigh, Reason: "approved path", PolicyID: "p1", Requirement: policy.ApprovalRequirement{Minimum: 1, Permission: "changes.approve", DistinctActors: true, ProhibitRequester: true}}
 	machine, err := change.New("change-1", "service.ensure", "alice", revision, decision, now)
 	if err != nil {
 		t.Fatal(err)

@@ -1,10 +1,9 @@
 package policy_test
 
 import (
+	"control-center/internal/orchestration/policy"
 	"testing"
 	"time"
-
-	"control-center/internal/orchestration/policy"
 )
 
 func TestCriticalRiskRequiresTwoIndependentApprovers(t *testing.T) {
@@ -14,11 +13,7 @@ func TestCriticalRiskRequiresTwoIndependentApprovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	when := time.Unix(1, 0)
-	approvals := []policy.Approval{
-		{Actor: "alice", Permissions: []string{"changes.approve"}, ApprovedAt: when},
-		{Actor: "bob", Permissions: []string{"changes.approve"}, ApprovedAt: when},
-		{Actor: "bob", Permissions: []string{"changes.approve"}, ApprovedAt: when},
-	}
+	approvals := []policy.Approval{{Actor: "alice", Permissions: []string{"changes.approve"}, ApprovedAt: when}, {Actor: "bob", Permissions: []string{"changes.approve"}, ApprovedAt: when}, {Actor: "bob", Permissions: []string{"changes.approve"}, ApprovedAt: when}}
 	if err := policy.CheckApprovals("alice", decision.Requirement, approvals); err == nil {
 		t.Fatal("requester and duplicate approver must not satisfy two-person approval")
 	}

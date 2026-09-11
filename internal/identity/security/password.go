@@ -30,8 +30,6 @@ const (
 
 var ErrMalformedPasswordHash = errors.New("malformed password hash")
 
-// PasswordHasher stores passwords using Argon2id with a random per-password
-// salt. Verification bounds all parameters before allocating memory.
 type PasswordHasher struct {
 	Memory      uint32
 	Iterations  uint32
@@ -49,6 +47,17 @@ func (h PasswordHasher) Hash(password string) (string, error) {
 	if err := validatePassword(password); err != nil {
 		return "", err
 	}
+	return h.hash(password)
+}
+
+// HashBootstrapAdminPassword hashes the one-time installation credential. It is
+// deliberately the only password-policy exception: all user-selected passwords
+// must go through Hash and satisfy the normal policy.
+func (h PasswordHasher) HashBootstrapAdminPassword() (string, error) {
+	return h.hash("admin")
+}
+
+func (h PasswordHasher) hash(password string) (string, error) {
 	params := h.withDefaults()
 	if !validArgon2Parameters(params.Memory, params.Iterations, params.Parallelism) {
 		return "", errors.New("Argon2id parameters outside allowed range")

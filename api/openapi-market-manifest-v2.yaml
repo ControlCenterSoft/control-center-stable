@@ -1,0 +1,295 @@
+openapi: 3.1.0
+info:
+  title: Control Center Market Manifest v2 API
+  version: 0.4.0
+  description: >-
+    Read-only Market contract. Network requirements are declarations for policy
+    evaluation and never authorize firewall, routing, NAT, or port-forwarding changes.
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v2/market/manifests:
+    get:
+      operationId: listMarketManifestsV2
+      responses:
+        '200':
+          description: Deterministically migrated built-in Market manifests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, count]
+                additionalProperties: false
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/MarketManifestV2' } }
+                  count: { type: integer, minimum: 0 }
+        default: { $ref: '#/components/responses/APIError' }
+  /api/v2/market/manifests/{manifestId}:
+    get:
+      operationId: getMarketManifestV2
+      parameters:
+        - name: manifestId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Identifier' }
+      responses:
+        '200':
+          description: Market Manifest v2 contract
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarketManifestV2' }
+        '404': { description: Manifest not found }
+        default: { $ref: '#/components/responses/APIError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  responses:
+    APIError:
+      description: Stable API error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$'
+    SemanticVersion:
+      type: string
+      pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    MarketManifestV2:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - id
+        - version
+        - status
+        - capabilities
+        - providers
+        - workload_type
+        - lifecycle
+        - capacity
+        - recovery
+        - network
+        - dependencies
+        - compatibility
+        - activation
+      properties:
+        schema_version: { type: string, const: market.manifest/v2 }
+        id: { $ref: '#/components/schemas/Identifier' }
+        version: { $ref: '#/components/schemas/SemanticVersion' }
+        status: { type: string, enum: [TRANSITIONAL, PRODUCTION_READY] }
+        capabilities:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Identifier' }
+        providers:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Identifier' }
+        workload_type:
+          type: string
+          enum: [UNSPECIFIED, STATELESS, STATEFUL, CLUSTERED, SINGLETON]
+        lifecycle: { $ref: '#/components/schemas/LifecycleSpec' }
+        capacity: { $ref: '#/components/schemas/CapacityProfile' }
+        recovery: { $ref: '#/components/schemas/RecoverySpec' }
+        network: { $ref: '#/components/schemas/NetworkSpec' }
+        dependencies: { $ref: '#/components/schemas/DependencyMetadata' }
+        compatibility: { $ref: '#/components/schemas/CompatibilitySpec' }
+        activation: { $ref: '#/components/schemas/ActivationPolicy' }
+        migration: { $ref: '#/components/schemas/ManifestMigration' }
+    LifecycleSpec:
+      type: object
+      additionalProperties: false
+      required: [operations]
+      properties:
+        operations:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [install, configure, health, capacity, scale_placement, update, migrate, drain, backup, restore, failover, remove]
+    ResourceEnvelope:
+      type: object
+      additionalProperties: false
+      required: [cpu_millicores, memory_mib, storage_mib, storage_iops, network_mbps, database_connections, service_queue_depth]
+      properties:
+        cpu_millicores: { type: integer, minimum: 0 }
+        memory_mib: { type: integer, minimum: 0 }
+        storage_mib: { type: integer, minimum: 0 }
+        storage_iops: { type: integer, minimum: 0 }
+        network_mbps: { type: integer, minimum: 0 }
+        database_connections: { type: integer, minimum: 0 }
+        service_queue_depth: { type: integer, minimum: 0 }
+    CapacityEvidence:
+      type: object
+      additionalProperties: false
+      required: [id, kind, reference, digest]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        kind: { type: string, enum: [BENCHMARK, TELEMETRY, LOAD_TEST] }
+        reference: { type: string, minLength: 1, maxLength: 512 }
+        digest: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+    CapacityProfile:
+      type: object
+      additionalProperties: false
+      required: [status, workload_unit, minimum, safe_units, technical_limit, confidence, benchmark_scenario, evidence]
+      properties:
+        status: { type: string, enum: [UNVERIFIED, ESTIMATED, CERTIFIED] }
+        workload_unit: { $ref: '#/components/schemas/Identifier' }
+        minimum: { $ref: '#/components/schemas/ResourceEnvelope' }
+        safe_units: { type: integer, minimum: 0 }
+        technical_limit: { type: integer, minimum: 0 }
+        confidence: { type: string, enum: [UNKNOWN, LOW, MEDIUM, HIGH] }
+        benchmark_scenario: { type: string, maxLength: 64 }
+        evidence: { type: array, items: { $ref: '#/components/schemas/CapacityEvidence' } }
+    RecoverySpec:
+      type: object
+      additionalProperties: false
+      required: [backup, restore, failover, fencing_required]
+      properties:
+        adapter: { $ref: '#/components/schemas/Identifier' }
+        backup: { $ref: '#/components/schemas/RecoveryCapability' }
+        restore: { $ref: '#/components/schemas/RecoveryCapability' }
+        failover: { $ref: '#/components/schemas/RecoveryCapability' }
+        fencing_required: { type: boolean }
+        rpo_seconds: { type: integer, minimum: 1 }
+        rto_seconds: { type: integer, minimum: 1 }
+    RecoveryCapability:
+      type: string
+      enum: [UNDECLARED, NOT_APPLICABLE, SUPPORTED]
+    PortRange:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from: { type: integer, minimum: 1, maximum: 65535 }
+        to: { type: integer, minimum: 1, maximum: 65535 }
+    NetworkRequirement:
+      type: object
+      additionalProperties: false
+      required: [name, protocol, direction, exposure, zones, ports]
+      properties:
+        name: { $ref: '#/components/schemas/Identifier' }
+        protocol: { type: string, enum: [TCP, UDP] }
+        direction: { type: string, enum: [INGRESS, EGRESS] }
+        exposure: { type: string, enum: [INTERNAL, EXTERNAL] }
+        zones:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, pattern: '^[A-Z][A-Z0-9_-]{0,31}$' }
+        ports:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/PortRange' }
+    NetworkSpec:
+      type: object
+      additionalProperties: false
+      required: [enforcement, requirements]
+      properties:
+        enforcement: { type: string, const: POLICY_CONTROLLED }
+        requirements:
+          type: array
+          items: { $ref: '#/components/schemas/NetworkRequirement' }
+    ModuleRequirement:
+      type: object
+      additionalProperties: false
+      required: [id, version_constraint, kind]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        version_constraint:
+          type: string
+          minLength: 5
+          maxLength: 64
+          pattern: '^(?:=|>=|<=|>|<|\^|~)?[0-9]+\.[0-9]+\.[0-9]+(?: (?:=|>=|<=|>|<|\^|~)?[0-9]+\.[0-9]+\.[0-9]+)?$'
+        kind: { type: string, enum: [REQUIRED, OPTIONAL] }
+    StorageRequirement:
+      type: object
+      additionalProperties: false
+      required: [name, class, access_mode, minimum_mib, persistent]
+      properties:
+        name: { $ref: '#/components/schemas/Identifier' }
+        class: { type: string, enum: [FILESYSTEM, BLOCK, OBJECT, DATABASE] }
+        access_mode: { type: string, enum: [READ_WRITE_ONCE, READ_WRITE_MANY] }
+        minimum_mib: { type: integer, minimum: 1 }
+        persistent: { type: boolean }
+    SecretRequirement:
+      type: object
+      additionalProperties: false
+      required: [name, purpose, scope]
+      properties:
+        name: { $ref: '#/components/schemas/Identifier' }
+        purpose: { type: string, minLength: 1, maxLength: 256 }
+        scope: { type: string, enum: [MODULE, INSTANCE] }
+    DependencyMetadata:
+      type: object
+      additionalProperties: false
+      required: [modules, capabilities, storage, secrets]
+      properties:
+        modules: { type: array, items: { $ref: '#/components/schemas/ModuleRequirement' } }
+        capabilities:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Identifier' }
+        storage: { type: array, items: { $ref: '#/components/schemas/StorageRequirement' } }
+        secrets: { type: array, items: { $ref: '#/components/schemas/SecretRequirement' } }
+    CompatibilitySpec:
+      type: object
+      additionalProperties: false
+      required: [platforms, architectures]
+      properties:
+        platforms:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, enum: [linux, windows] }
+        architectures:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [amd64, arm64] }
+        min_controller_version: { $ref: '#/components/schemas/SemanticVersion' }
+        max_controller_version: { $ref: '#/components/schemas/SemanticVersion' }
+    ActivationPolicy:
+      type: object
+      additionalProperties: false
+      required: [mode, network_changes]
+      properties:
+        mode: { type: string, const: EXPLICIT }
+        network_changes: { type: string, const: POLICY_APPROVAL_REQUIRED }
+    ManifestMigration:
+      type: object
+      additionalProperties: false
+      required: [source_schema_version, strategy, warnings]
+      properties:
+        source_schema_version: { type: string, const: market.manifest/v1 }
+        strategy: { type: string, const: PRESERVE_DECLARATIONS }
+        warnings:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 256 }
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }

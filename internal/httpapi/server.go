@@ -29,13 +29,8 @@ type Server struct {
 
 type Option func(*Server)
 
-// WithResourceGuard installs the authentication and authorization middleware
-// used by the resource read API. If no guard is configured, resource reads are
-// denied so a wiring mistake cannot expose inventory data.
 func WithResourceGuard(guard func(http.Handler) http.Handler) Option {
-	return func(s *Server) {
-		s.resourceGuard = guard
-	}
+	return func(s *Server) { s.resourceGuard = guard }
 }
 
 func WithReadinessCheck(check interface{ PingContext(context.Context) error }) Option {
@@ -49,13 +44,11 @@ func WithReadinessCheck(check interface{ PingContext(context.Context) error }) O
 type errorEnvelope struct {
 	Error apiError `json:"error"`
 }
-
 type apiError struct {
 	Code          string `json:"code"`
 	Message       string `json:"message"`
 	CorrelationID string `json:"correlation_id"`
 }
-
 type contextKey string
 
 const correlationIDKey contextKey = "correlation_id"
@@ -91,12 +84,7 @@ func (s *Server) protectResourceRead(next http.Handler) http.Handler {
 		writeError(w, r, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "authentication is required")
 	})
 }
-
-func (s *Server) Handler() http.Handler {
-	return s.handler
-}
-
-// Middleware is the common HTTP boundary used by every API surface.
+func (s *Server) Handler() http.Handler { return s.handler }
 func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -104,14 +92,12 @@ func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 	s := &Server{logger: logger}
 	return s.correlationID(s.recoverPanic(s.accessLog(s.securityHeaders(next))))
 }
-
 func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 	if !allowGET(w, r) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
-
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	if !allowGET(w, r) {
 		return
@@ -136,20 +122,12 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
-
 func (s *Server) version(w http.ResponseWriter, r *http.Request) {
 	if !allowGET(w, r) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"name":        buildinfo.ProductName,
-		"version":     buildinfo.Version,
-		"api_version": buildinfo.APIVersion,
-		"commit":      buildinfo.Commit,
-		"build_time":  buildinfo.BuildTime,
-	})
+	writeJSON(w, http.StatusOK, map[string]string{"name": buildinfo.ProductName, "version": buildinfo.Version, "api_version": buildinfo.APIVersion, "commit": buildinfo.Commit, "build_time": buildinfo.BuildTime})
 }
-
 func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 	if !allowGET(w, r) {
 		return
@@ -162,10 +140,7 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "INVALID_QUERY", err.Error())
 		return
 	}
-	filter := resources.Filter{
-		OrganizationID: strings.TrimSpace(r.URL.Query().Get("organization_id")),
-		Kind:           strings.TrimSpace(r.URL.Query().Get("kind")),
-	}
+	filter := resources.Filter{OrganizationID: strings.TrimSpace(r.URL.Query().Get("organization_id")), Kind: strings.TrimSpace(r.URL.Query().Get("kind"))}
 	items, err := s.resources.List(r.Context(), filter)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "list resources", "error", err)
@@ -177,7 +152,6 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 		Count int                  `json:"count"`
 	}{Items: items, Count: len(items)})
 }
-
 func (s *Server) getResource(w http.ResponseWriter, r *http.Request) {
 	if !allowGET(w, r) {
 		return
@@ -207,11 +181,9 @@ func (s *Server) getResource(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resource)
 }
-
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, r, http.StatusNotFound, "ROUTE_NOT_FOUND", "route was not found")
 }
-
 func allowGET(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodGet {
 		return true
@@ -220,7 +192,6 @@ func allowGET(w http.ResponseWriter, r *http.Request) bool {
 	writeError(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method is not allowed")
 	return false
 }
-
 func rejectUnknownQuery(r *http.Request, allowed ...string) error {
 	allowedKeys := make(map[string]bool, len(allowed))
 	for _, key := range allowed {
@@ -233,7 +204,6 @@ func rejectUnknownQuery(r *http.Request, allowed ...string) error {
 	}
 	return nil
 }
-
 func (s *Server) correlationID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		correlationID := r.Header.Get(correlationHeader)
@@ -245,7 +215,6 @@ func (s *Server) correlationID(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -255,7 +224,6 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
 func (s *Server) recoverPanic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -267,19 +235,12 @@ func (s *Server) recoverPanic(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
 func (s *Server) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
-		s.logger.InfoContext(r.Context(), "http request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", recorder.status,
-			"duration_ms", time.Since(start).Milliseconds(),
-			"correlation_id", correlationIDFromContext(r.Context()),
-		)
+		s.logger.InfoContext(r.Context(), "http request", "method", r.Method, "path", r.URL.Path, "status", recorder.status, "duration_ms", time.Since(start).Milliseconds(), "correlation_id", correlationIDFromContext(r.Context()))
 	})
 }
 
@@ -292,28 +253,17 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
 }
-
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	WriteError(w, r, status, code, message)
 }
-
-// WriteError emits the stable API error envelope. A nil request is supported
-// for authentication middleware; correlation is then read from the response
-// header set by Middleware.
 func WriteError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	correlationID := w.Header().Get(correlationHeader)
 	if r != nil {
 		correlationID = correlationIDFromContext(r.Context())
 	}
-	writeJSON(w, status, errorEnvelope{Error: apiError{
-		Code:          code,
-		Message:       message,
-		CorrelationID: correlationID,
-	}})
+	writeJSON(w, status, errorEnvelope{Error: apiError{Code: code, Message: message, CorrelationID: correlationID}})
 }
-
 func CorrelationID(ctx context.Context) string { return correlationIDFromContext(ctx) }
-
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -321,12 +271,10 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	encoder.SetEscapeHTML(true)
 	_ = encoder.Encode(value)
 }
-
 func correlationIDFromContext(ctx context.Context) string {
 	value, _ := ctx.Value(correlationIDKey).(string)
 	return value
 }
-
 func newCorrelationID() string {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {

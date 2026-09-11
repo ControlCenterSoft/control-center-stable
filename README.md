@@ -1,53 +1,64 @@
-# Control Center 0.3.1
+# Control Center
 
-Control Center is an infrastructure-management control plane with durable
-identity, policy, audit, configuration revision, change, job, and worker
-boundaries.
+Control Center — централизованная платформа управления инфраструктурой с типизированной, проверяемой и аудируемой моделью исполнения.
 
-## Release channels
+Текущий кодовый baseline: **0.6.0**. Номер версии изменяется только отдельным релизным процессом после реализации и тестирования.
 
-This repository is the **stable binary channel**. Version `0.3.1` is the
-current stable binary release.
+## Источник истины разработки
 
-The newer official source-release line is published separately in
-[`ControlCenterSoft/control-center-development`](https://github.com/ControlCenterSoft/control-center-development),
-where the latest officially published source release is `0.24.0`.
+Нормативным источником истины для текущей разработки является ветка `main` этого репозитория: `ControlCenterSoft/control-center-development`.
 
-Do not assume that features introduced after `0.3.1` in the source-release
-line are available in this stable binary channel until a corresponding stable
-build is separately qualified and published here.
+Перед продолжением разработки необходимо читать:
 
-## Included
+1. [`ARCHITECTURE.md`](ARCHITECTURE.md) — целевая архитектура и обязательные инварианты;
+2. [`ROADMAP.md`](ROADMAP.md) — правильная последовательность внедрения и первый незакрытый архитектурный этап;
+3. [`docs/REQUIREMENTS_RU.md`](docs/REQUIREMENTS_RU.md) — каталог уже принятых требований.
 
-- local administrator authentication and PostgreSQL-backed sessions;
-- role-based access control and append-only audit records;
-- immutable configuration revisions and stale-write protection;
-- policy decisions, risk classes, approvals, and a typed Change state machine;
-- durable jobs with leases, retries, cancellation, and idempotency;
-- an allowlisted worker with post-action verification;
-- bounded Actual State, Health, and audit evidence;
-- fail-closed validation and canonical persistence of provider output;
-- versioned OpenAPI contracts and checksum-tracked database migrations.
+Правило: команда «продолжай разработку» должна сначала сверять актуальный `main`, активные PR и первый незакрытый этап `ROADMAP.md`, а затем реализовывать следующий совместимый Task Packet.
 
-The API fails closed when PostgreSQL is unavailable. The default deployment
-binds to loopback and is intended to sit behind an operator-managed TLS reverse
-proxy.
+`ControlCenterSoft/control-center-stable` — стабильный релизный канал. `ControlCenterSoft/control-center` — публичный сайт/витрина. Эти репозитории не являются архитектурным source of truth продукта.
 
-## Start here
+Google Drive содержит подробную продуктовую/эксплуатационную документацию и должен быть синхронизирован с этими нормативными файлами. Выявленное противоречие между реализацией и документацией должно быть устранено до развития конфликтующего контракта.
 
-- [Installation](INSTALL.md)
-- [Release notes](RELEASE_NOTES.md)
-- [Security](SECURITY.md)
-- [Architecture](ARCHITECTURE.md)
-- [OpenAPI 0.3](api/openapi-0.3.yaml)
+## Возможности текущего baseline
 
-## Build from source
+- HTTP/JSON API и health/readiness endpoints;
+- локальная identity/session модель;
+- deny-by-default RBAC;
+- append-oriented audit;
+- PostgreSQL-backed durable state;
+- immutable configuration revisions;
+- policy/risk/approval-aware Changes;
+- durable Jobs с leases, retries и idempotency;
+- allowlisted typed Worker actions;
+- resource state/health;
+- Agent enrollment/heartbeat foundations;
+- Inventory/Market/PXE/Automation/Domain/Integration foundations;
+- non-root runtime.
 
-Requirements: Go 1.23 or newer.
+Целевая распределённая ролевая, кластерная, Capacity, Lifecycle/Recovery, Network/Edge и Enterprise Market архитектура описана в нормативных документах выше и внедряется поэтапно, а не одним несовместимым скачком.
 
-```sh
+## Модель разработки
+
+Разработка ведётся параллельно, но общие контракты Identity/RBAC/State/Jobs/Agent/Market/Network/Recovery не должны иметь независимых несовместимых реализаций в разных ветках.
+
+Pull request должен оставлять `main` зелёным и проходить предусмотренные форматирование, vet/race, unit/integration/security/failure/build gates.
+
+В репозитории запрещены credentials, приватная топология инфраструктуры, production data, приватные deployment endpoints и секреты.
+
+## Локальная проверка
+
+```bash
 make ci
-bash scripts/build-release.sh
 ```
 
-The release builder writes the Linux AMD64 bundle and checksum to `dist/`.
+## Локальная сборка
+
+```bash
+make build
+./bin/control-center
+```
+
+## Первый вход
+
+На пустой установке Control Center создаёт локального пользователя `admin` с одноразовым начальным паролем `admin`. Первая сессия позволяет только проверить состояние сессии, сменить пароль или выйти. До смены пароля обычная работа запрещена. Обновление установленной системы никогда не заменяет существующий пароль пользователя и не восстанавливает начальный credential.

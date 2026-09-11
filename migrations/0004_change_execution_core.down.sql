@@ -1,5 +1,4 @@
 BEGIN;
-
 DROP INDEX IF EXISTS cc_audit_events_correlation_idx;
 DROP TABLE IF EXISTS cc_health_observations;
 DROP TABLE IF EXISTS cc_actual_states;
@@ -11,5 +10,4 @@ DROP TRIGGER IF EXISTS cc_config_revisions_immutable ON cc_config_revisions;
 DROP FUNCTION IF EXISTS cc_reject_revision_mutation();
 DROP TABLE IF EXISTS cc_idempotency_keys;
 DROP TABLE IF EXISTS cc_config_revisions;
-
 COMMIT;

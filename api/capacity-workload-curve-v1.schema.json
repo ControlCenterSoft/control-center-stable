@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.example/schemas/capacity-workload-curve-v1.schema.json",
+  "title": "Control Center Capacity Workload Curve v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "curve_id", "scope_id", "workload_unit", "minimum_points",
+    "points", "status", "reason", "confidence", "advisory_only", "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {"const": "capacity.workload-curve/v1"},
+    "curve_id": {"type": "string", "pattern": "^wlc-[0-9a-f]{24}$"},
+    "scope_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "workload_unit": {
+      "enum": ["devices", "concurrent-sessions", "jobs-per-minute", "requests-per-second", "instances"]
+    },
+    "minimum_points": {"type": "integer", "minimum": 3, "maximum": 64},
+    "points": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["point_id", "source_profile_id", "resource_factor", "safe_workload", "confidence"],
+        "properties": {
+          "point_id": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_profile_id": {"type": "string", "pattern": "^wlp-[0-9a-f]{24}$"},
+          "resource_factor": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000},
+          "safe_workload": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000000000},
+          "confidence": {"enum": ["low", "medium", "high"]}
+        }
+      }
+    },
+    "status": {"enum": ["ready", "blocked"]},
+    "reason": {"enum": ["piecewise_curve_ready", "non_monotonic_capacity_curve"]},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "advisory_only": {"const": true},
+    "production_mutation": {"const": false}
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "capacity-placement-resource-headroom-v1.schema.json",
+  "title": "Capacity Placement Resource Headroom Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "envelope_id",
+    "derived_snapshot_id",
+    "placement_snapshot_id",
+    "advice_id",
+    "scope_id",
+    "evaluated_at",
+    "candidates",
+    "advisory_only",
+    "placement_authorized",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {"const": "capacity.placement-resource-headroom/v1"},
+    "envelope_id": {"type": "string", "pattern": "^prh-[0-9a-f]{24}$"},
+    "derived_snapshot_id": {"type": "string", "pattern": "^pade-[0-9a-f]{24}$"},
+    "placement_snapshot_id": {"type": "string", "pattern": "^pas-[0-9a-f]{24}$"},
+    "advice_id": {"type": "string", "pattern": "^pa-[0-9a-f]{24}$"},
+    "scope_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "advisory_only": {"const": true},
+    "placement_authorized": {"const": false},
+    "production_mutation": {"const": false}
+  },
+  "$defs": {
+    "score_band": {"enum": ["blocked", "boundary", "headroom"]},
+    "metric": {
+      "enum": [
+        "cpu.utilization",
+        "memory.used",
+        "storage.used",
+        "storage.iops",
+        "storage.latency",
+        "storage.queue-depth",
+        "network.throughput",
+        "network.latency",
+        "network.packet-loss",
+        "database.latency",
+        "database.transactions",
+        "service.queue-depth"
+      ]
+    },
+    "unit": {
+      "enum": [
+        "percent",
+        "bytes",
+        "operations-per-second",
+        "milliseconds",
+        "count",
+        "bits-per-second",
+        "transactions-per-second"
+      ]
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "score"],
+      "properties": {
+        "level": {"enum": ["low", "medium", "high", "certified"]},
+        "score": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "constraint_id",
+        "metric",
+        "target_id",
+        "unit",
+        "observed_value",
+        "safe_limit",
+        "technical_limit",
+        "safe_reserve",
+        "safe_reserve_percent",
+        "evidence",
+        "observed_at",
+        "observation_age_seconds",
+        "score_band"
+      ],
+      "properties": {
+        "constraint_id": {"type": "string", "minLength": 1, "maxLength": 255},
+        "metric": {"$ref": "#/$defs/metric"},
+        "target_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "unit": {"$ref": "#/$defs/unit"},
+        "observed_value": {"type": "number", "minimum": 0},
+        "safe_limit": {"type": "number", "exclusiveMinimum": 0},
+        "technical_limit": {"type": "number", "exclusiveMinimum": 0},
+        "safe_reserve": {"type": "number"},
+        "safe_reserve_percent": {"type": "number"},
+        "evidence": {"enum": ["measured", "estimated", "benchmark"]},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "observation_age_seconds": {"type": "integer", "minimum": 0, "maximum": 604800},
+        "score_band": {"$ref": "#/$defs/score_band"}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "eligible",
+        "reason",
+        "workload_margin_above_minimum_percent",
+        "resources",
+        "limiting_constraint_id",
+        "limiting_metric",
+        "limiting_target_id",
+        "limiting_resource_reserve_percent",
+        "effective_safety_margin_percent",
+        "limiting_dimension",
+        "score_band",
+        "confidence"
+      ],
+      "properties": {
+        "node_id": {"type": "string", "minLength": 1, "maxLength": 255},
+        "eligible": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 255},
+        "workload_margin_above_minimum_percent": {"type": "number"},
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/resource"}
+        },
+        "limiting_constraint_id": {"type": "string", "minLength": 1, "maxLength": 255},
+        "limiting_metric": {"$ref": "#/$defs/metric"},
+        "limiting_target_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "limiting_resource_reserve_percent": {"type": "number"},
+        "effective_safety_margin_percent": {"type": "number"},
+        "limiting_dimension": {"enum": ["workload-safe-reserve", "resource-safe-reserve"]},
+        "score_band": {"$ref": "#/$defs/score_band"},
+        "confidence": {"$ref": "#/$defs/confidence"}
+      }
+    }
+  }
+}

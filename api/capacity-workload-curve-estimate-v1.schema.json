@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.example/schemas/capacity-workload-curve-estimate-v1.schema.json",
+  "title": "Control Center Capacity Workload Curve Estimate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "estimate_id", "curve_id", "target_resource_factor",
+    "status", "reason", "advisory_only", "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {"const": "capacity.workload-curve-estimate/v1"},
+    "estimate_id": {"type": "string", "pattern": "^wle-[0-9a-f]{24}$"},
+    "curve_id": {"type": "string", "pattern": "^wlc-[0-9a-f]{24}$"},
+    "target_resource_factor": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000},
+    "estimated_safe_workload": {"type": "number", "exclusiveMinimum": 0},
+    "status": {"enum": ["ready", "collect-evidence", "blocked"]},
+    "reason": {
+      "enum": [
+        "observed_curve_point",
+        "interpolated_within_observed_curve",
+        "target_outside_observed_curve",
+        "curve_blocked"
+      ]
+    },
+    "advisory_only": {"const": true},
+    "production_mutation": {"const": false}
+  }
+}

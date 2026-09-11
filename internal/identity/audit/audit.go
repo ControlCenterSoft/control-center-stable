@@ -30,16 +30,12 @@ type Event struct {
 type Logger interface {
 	Append(context.Context, Event) error
 }
-
-// MemoryLog is a reference append-only implementation. Persistent adapters
-// should enforce the same no-update/no-delete contract at the storage layer.
 type MemoryLog struct {
 	mu      sync.RWMutex
 	records []Event
 }
 
 func NewMemoryLog() *MemoryLog { return &MemoryLog{} }
-
 func (l *MemoryLog) Append(ctx context.Context, event Event) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -57,9 +53,6 @@ func (l *MemoryLog) Append(ctx context.Context, event Event) error {
 	l.records = append(l.records, event)
 	return nil
 }
-
-// Prepare validates, redacts, links, and hashes an event for an append-only
-// persistence adapter. Callers must serialize access to the previous hash.
 func Prepare(event Event, previousHash string) (Event, error) {
 	if strings.TrimSpace(event.Action) == "" || strings.TrimSpace(event.Outcome) == "" {
 		return Event{}, fmt.Errorf("audit action and outcome are required")
@@ -77,9 +70,6 @@ func Prepare(event Event, previousHash string) (Event, error) {
 	event.Hash = hashEvent(event)
 	return event, nil
 }
-
-// Verify confirms that a persisted event retains the canonical timestamp,
-// expected predecessor, and content hash produced by Prepare.
 func Verify(event Event, expectedPreviousHash string) error {
 	if event.OccurredAt.IsZero() {
 		return fmt.Errorf("audit timestamp is required")
@@ -99,7 +89,6 @@ func Verify(event Event, expectedPreviousHash string) error {
 	}
 	return nil
 }
-
 func (l *MemoryLog) Records() []Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -125,7 +114,6 @@ func Redact(input map[string]any) map[string]any {
 	}
 	return result
 }
-
 func redactValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -142,25 +130,16 @@ func redactValue(value any) any {
 		return typed
 	}
 }
-
 func hashEvent(event Event) string {
 	event.Hash = ""
 	payload, _ := json.Marshal(event)
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
-
 func randomID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		panic("operating system random source unavailable")
 	}
-	// Store the identifier in the same canonical form returned by PostgreSQL's
-	// uuid type. The identifier is part of the event hash, so hashing the compact
-	// hexadecimal form and later reading a hyphenated UUID would invalidate an
-	// otherwise untouched audit chain after restart.
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	encoded := hex.EncodeToString(b)
-	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
+	return hex.EncodeToString(b)
 }

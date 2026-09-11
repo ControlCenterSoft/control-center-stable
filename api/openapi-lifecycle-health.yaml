@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: Control Center Inventory Lifecycle and Agent Health API fragment
+  version: 0.3.0
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v1/inventory/reconcile:
+    post:
+      operationId: reconcileInventoryObservations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [observations]
+              properties:
+                observations:
+                  type: array
+                  items: { $ref: '#/components/schemas/Observation' }
+      responses:
+        '200': { description: Deterministic reconciled device set }
+        '422': { description: Invalid observation }
+  /api/v1/inventory/freshness:
+    post:
+      operationId: evaluateInventoryFreshness
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FreshnessRequest' }
+      responses:
+        '200': { description: Inventory freshness classification }
+        '422': { description: Invalid freshness policy }
+  /api/v1/agent/heartbeat/evaluate:
+    post:
+      operationId: evaluateAgentHeartbeat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HeartbeatRequest' }
+      responses:
+        '200': { description: Agent heartbeat state }
+        '422': { description: Invalid heartbeat policy }
+  /api/v1/agent/lease/evaluate:
+    post:
+      operationId: evaluateAgentLease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200': { description: Agent lease state }
+        '422': { description: Invalid lease }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  schemas:
+    Observation:
+      type: object
+      additionalProperties: false
+      required: [device_id, source, seen_at]
+      properties:
+        device_id: { type: string, minLength: 1 }
+        source: { type: string, minLength: 1 }
+        hostname: { type: string }
+        seen_at: { type: string, format: date-time }
+    FreshnessRequest:
+      type: object
+      additionalProperties: false
+      required: [observed_at, now, stale_after_seconds, expire_after_seconds]
+      properties:
+        observed_at: { type: string, format: date-time }
+        now: { type: string, format: date-time }
+        stale_after_seconds: { type: integer, minimum: 0 }
+        expire_after_seconds: { type: integer, minimum: 0 }
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      required: [last_seen, now, delayed_after_seconds, offline_after_seconds]
+      properties:
+        last_seen: { type: string, format: date-time }
+        now: { type: string, format: date-time }
+        delayed_after_seconds: { type: integer, minimum: 0 }
+        offline_after_seconds: { type: integer, minimum: 0 }
+    LeaseRequest:
+      type: object
+      additionalProperties: false
+      required: [node_id, last_heartbeat, now, ttl_seconds, grace_seconds]
+      properties:
+        node_id: { type: string, minLength: 1 }
+        last_heartbeat: { type: string, format: date-time }
+        now: { type: string, format: date-time }
+        ttl_seconds: { type: integer, minimum: 1 }
+        grace_seconds: { type: integer, minimum: 0 }

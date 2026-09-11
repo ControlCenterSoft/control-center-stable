@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 
 	"control-center/internal/identity/auth"
@@ -12,13 +11,9 @@ import (
 	"control-center/internal/persistence/postgres"
 )
 
-func newIdentityHandler(environment string, db *sql.DB, username, password string) (*identityapi.Server, error) {
-	if username == "" || password == "" {
-		return nil, errors.New("CC_BOOTSTRAP_ADMIN_USERNAME and CC_BOOTSTRAP_ADMIN_PASSWORD are required")
-	}
-
+func newIdentityHandler(environment string, db *sql.DB, sessionTTL, sessionIdleTimeout time.Duration) (*identityapi.Server, error) {
 	hasher := security.NewPasswordHasher()
-	passwordHash, err := hasher.Hash(password)
+	passwordHash, err := hasher.HashBootstrapAdminPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -29,20 +24,20 @@ func newIdentityHandler(environment string, db *sql.DB, username, password strin
 	if err := auditLog.VerifyChain(context.Background()); err != nil {
 		return nil, err
 	}
-	if _, err := postgres.BootstrapAdmin(context.Background(), db, username, passwordHash, time.Now().UTC()); err != nil {
+	if _, _, err := postgres.BootstrapAdmin(context.Background(), db, "admin", passwordHash, time.Now().UTC()); err != nil {
 		return nil, err
 	}
 	store, err := postgres.NewIdentityStore(db)
 	if err != nil {
 		return nil, err
 	}
-	authService, err := auth.NewService(store, store, auditLog, hasher, 0)
+	authService, err := auth.NewService(store, store, auditLog, hasher, sessionTTL, auth.WithSessionIdleTimeout(sessionIdleTimeout))
 	if err != nil {
 		return nil, err
 	}
 	authorizer := postgres.NewAuthorizer(db)
 
-	return identityapi.NewServer(authService, authorizer, auditLog, identityapi.Config{
+	return identityapi.NewServerWithSelfAccess(authService, authorizer, auditLog, identityapi.Config{
 		InsecureCookiesForDevelopment: environment == "development" || environment == "test",
 	})
 }

@@ -268,9 +268,7 @@ func (s *Server) createChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusPreconditionFailed, "revision_precondition_failed", "configuration revision is no longer current")
 		return
 	}
-	decision, err := s.evaluator.Evaluate(policy.EvaluationInput{
-		Action: request.Action, Requester: actor, Risk: definition.Risk,
-	})
+	decision, err := s.evaluator.Evaluate(policy.EvaluationInput{Action: request.Action, Requester: actor, Risk: definition.Risk})
 	if err != nil {
 		writeError(w, r, http.StatusUnprocessableEntity, "policy_evaluation_failed", err.Error())
 		return
@@ -337,9 +335,7 @@ func (s *Server) approveChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, "change_not_found", "change was not found")
 		return
 	}
-	if err := record.machine.Approve(policy.Approval{
-		Actor: actor, Permissions: []string{string(rbac.PermissionChangesApprove)}, ApprovedAt: s.now().UTC(),
-	}, version, s.now().UTC()); err != nil {
+	if err := record.machine.Approve(policy.Approval{Actor: actor, Permissions: []string{string(rbac.PermissionChangesApprove)}, ApprovedAt: s.now().UTC()}, version, s.now().UTC()); err != nil {
 		writeError(w, r, http.StatusConflict, "change_conflict", err.Error())
 		return
 	}
@@ -409,16 +405,10 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, result)
 }
 
-// ReconcileJob advances the owning Change after a worker observation. It is
-// idempotent and deliberately keeps lifecycle state in the orchestration
-// layer instead of letting action implementations mutate Changes directly.
 func (s *Server) ReconcileJob(execution job.Job, now time.Time) error {
 	return s.reconcileJob(context.Background(), execution, now)
 }
 
-// ReconcileTerminalJobs repairs the durable Change state for jobs that reached
-// a terminal state before their owning process could complete reconciliation.
-// It is safe to call at startup and periodically while the process is running.
 func (s *Server) ReconcileTerminalJobs(ctx context.Context, now time.Time) error {
 	if ctx == nil || now.IsZero() {
 		return errors.New("reconciliation context and time are required")
@@ -516,7 +506,6 @@ func (s *Server) reconcileJob(ctx context.Context, execution job.Job, now time.T
 			return err
 		}
 	case job.StatusCancelRequested, job.StatusRunning, job.StatusRetryWait, job.StatusQueued:
-		// Persist the executing state below.
 	default:
 		return errors.New("unsupported job status")
 	}
@@ -541,10 +530,7 @@ func terminalChangeState(status job.Status) (change.State, bool) {
 }
 
 func persistedChange(record *changeRecord, fingerprint string) PersistedChange {
-	return PersistedChange{
-		Snapshot: record.machine.Snapshot(), Input: append(json.RawMessage(nil), record.input...),
-		IdempotencyKey: record.idempotencyKey, Fingerprint: fingerprint, JobID: record.jobID,
-	}
+	return PersistedChange{Snapshot: record.machine.Snapshot(), Input: append(json.RawMessage(nil), record.input...), IdempotencyKey: record.idempotencyKey, Fingerprint: fingerprint, JobID: record.jobID}
 }
 
 func (s *Server) restoreChange(persisted PersistedChange) (*changeRecord, error) {
@@ -552,10 +538,7 @@ func (s *Server) restoreChange(persisted PersistedChange) (*changeRecord, error)
 	if !exists {
 		return nil, errors.New("persisted change references unknown revision")
 	}
-	machine, err := change.New(
-		persisted.Snapshot.ID, persisted.Snapshot.Action, persisted.Snapshot.Requester,
-		revision, persisted.Snapshot.Decision, persisted.Snapshot.UpdatedAt,
-	)
+	machine, err := change.New(persisted.Snapshot.ID, persisted.Snapshot.Action, persisted.Snapshot.Requester, revision, persisted.Snapshot.Decision, persisted.Snapshot.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -616,27 +599,16 @@ func (s *Server) restoreChange(persisted PersistedChange) (*changeRecord, error)
 	if machine.Snapshot().Version != persisted.Snapshot.Version {
 		return nil, errors.New("persisted change version failed integrity validation")
 	}
-	return &changeRecord{
-		machine: machine, input: append(json.RawMessage(nil), persisted.Input...),
-		idempotencyKey: persisted.IdempotencyKey, jobID: persisted.JobID,
-	}, nil
+	return &changeRecord{machine: machine, input: append(json.RawMessage(nil), persisted.Input...), idempotencyKey: persisted.IdempotencyKey, jobID: persisted.JobID}, nil
 }
 
 func viewChange(record *changeRecord) changeView {
 	snapshot := record.machine.Snapshot()
-	return changeView{
-		ID: snapshot.ID, Action: snapshot.Action, Requester: snapshot.Requester,
-		RevisionID: snapshot.RevisionID, Risk: snapshot.Risk, State: snapshot.State,
-		Approvals: snapshot.Approvals, Version: snapshot.Version, UpdatedAt: snapshot.UpdatedAt,
-		JobID: record.jobID,
-	}
+	return changeView{ID: snapshot.ID, Action: snapshot.Action, Requester: snapshot.Requester, RevisionID: snapshot.RevisionID, Risk: snapshot.Risk, State: snapshot.State, Approvals: snapshot.Approvals, Version: snapshot.Version, UpdatedAt: snapshot.UpdatedAt, JobID: record.jobID}
 }
 
 func revisionResponse(revision orchestrationconfig.Revision) revisionView {
-	return revisionView{
-		ID: revision.ID(), Sequence: revision.Sequence(), Digest: revision.Digest(),
-		Content: revision.Content(), CreatedAt: revision.CreatedAt(),
-	}
+	return revisionView{ID: revision.ID(), Sequence: revision.Sequence(), Digest: revision.Digest(), Content: revision.Content(), CreatedAt: revision.CreatedAt()}
 }
 
 func idempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -670,11 +642,7 @@ func jsonObject(raw json.RawMessage) bool {
 	return decoder.Decode(&object) == nil && object != nil
 }
 
-func digest(value []byte) string {
-	sum := sha256.Sum256(value)
-	return hex.EncodeToString(sum[:])
-}
-
+func digest(value []byte) string { sum := sha256.Sum256(value); return hex.EncodeToString(sum[:]) }
 func newID() string {
 	var value [12]byte
 	if _, err := rand.Read(value[:]); err != nil {
@@ -682,13 +650,11 @@ func newID() string {
 	}
 	return hex.EncodeToString(value[:])
 }
-
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
-
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	commonapi.WriteError(w, r, status, code, message)
 }

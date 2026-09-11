@@ -1,0 +1,465 @@
+openapi: 3.1.0
+info:
+  title: Control Center Domain, Inventory and Agent API fragment
+  version: 0.4.0
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v1/domain/provider/resolve:
+    post:
+      operationId: resolveDomainProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DomainProviderRequest'
+      responses:
+        '200':
+          description: Compatible provider selected
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [provider]
+                properties:
+                  provider: { type: string, enum: [samba-ad-dc, freeipa] }
+        '422': { description: Requested provider is incompatible with requirements }
+  /api/v1/domain/lifecycle/plan:
+    post:
+      operationId: planDomainLifecycle
+      description: >-
+        Builds a deterministic typed plan for an explicitly selected Samba AD
+        or FreeIPA provider. This planning boundary accepts no credentials,
+        endpoints, arbitrary commands or provider-specific free-form payloads.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DomainLifecyclePlanRequest'
+      responses:
+        '200':
+          description: Canonical deterministic lifecycle plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainLifecyclePlan'
+        '400': { description: Malformed request or unknown field }
+        '422': { description: Invalid operation or incompatible explicit provider choice }
+  /api/v1/inventory/normalize:
+    post:
+      operationId: normalizeInventoryDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Device'
+      responses:
+        '200':
+          description: Canonical inventory device
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '422': { description: Invalid device identity or platform }
+  /api/v1/agent/enrollment/normalize:
+    post:
+      operationId: normalizeAgentEnrollment
+      description: >-
+        Canonicalizes a bounded, declarative enrollment/inventory report and
+        evaluates deterministic admission preconditions. The operation neither
+        persists enrollment nor mutates interfaces, routes, forwarding, NAT, or
+        firewall state. A missing contract_version selects the backwards-compatible
+        v1 shape; all extended fields require agent.enrollment/v2 explicitly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnrollmentRequest'
+      responses:
+        '200':
+          description: Canonical report, fail-closed preconditions, and explicit no-side-effect declaration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentEnrollmentNormalization' }
+        '400': { description: Malformed JSON, duplicate/unknown field, trailing value, or request larger than 256 KiB }
+        '415': { description: Content-Type is not application/json }
+        '422': { description: Invalid enrollment request }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  schemas:
+    DomainProviderRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        preferred: { type: string, enum: [auto, samba-ad-dc, freeipa] }
+        requirements:
+          $ref: '#/components/schemas/DomainRequirements'
+    DomainRequirements:
+      type: object
+      additionalProperties: false
+      properties:
+        WindowsDomainJoin: { type: boolean }
+        GroupPolicy: { type: boolean }
+    DomainLifecyclePlanRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, operation, domain_name, target]
+      properties:
+        provider: { type: string, enum: [samba-ad-dc, freeipa] }
+        operation: { $ref: '#/components/schemas/DomainLifecycleOperation' }
+        domain_name:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Multi-label DNS domain; a final root dot is accepted and canonicalized away.
+        target: { $ref: '#/components/schemas/DomainLifecycleTarget' }
+        requirements: { $ref: '#/components/schemas/DomainRequirements' }
+    DomainLifecycleTarget:
+      type: object
+      additionalProperties: false
+      required: [node_id, platform]
+      properties:
+        node_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$'
+        platform: { type: string, enum: [linux, windows] }
+    DomainLifecycleOperation:
+      type: string
+      enum: [create, join, promote, health-preflight]
+    DomainLifecyclePlan:
+      type: object
+      additionalProperties: false
+      required: [schema_version, plan_id, provider, operation, domain_name, target, requirements, mutating, steps]
+      properties:
+        schema_version: { type: string, const: domain.lifecycle.plan/v1 }
+        plan_id: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+        provider: { type: string, enum: [samba-ad-dc, freeipa] }
+        operation: { $ref: '#/components/schemas/DomainLifecycleOperation' }
+        domain_name: { type: string }
+        target: { $ref: '#/components/schemas/DomainLifecycleTarget' }
+        requirements: { $ref: '#/components/schemas/DomainRequirements' }
+        mutating: { type: boolean }
+        steps:
+          type: array
+          minItems: 6
+          maxItems: 7
+          items: { $ref: '#/components/schemas/DomainLifecycleStep' }
+    DomainLifecycleStep:
+      type: object
+      additionalProperties: false
+      required: [order, stage, action]
+      properties:
+        order: { type: integer, minimum: 1 }
+        stage: { type: string, enum: [preflight, apply, verify] }
+        action:
+          type: string
+          enum:
+            - validate-provider-compatibility
+            - validate-dns-readiness
+            - validate-time-sync-readiness
+            - validate-storage-readiness
+            - discover-directory
+            - samba-ad-dc.provision-domain
+            - samba-ad-dc.join-member
+            - samba-ad-dc.promote-controller
+            - samba-ad-dc.check-directory-health
+            - samba-ad-dc.verify-membership
+            - samba-ad-dc.verify-replication
+            - freeipa.provision-domain
+            - freeipa.enroll-host
+            - freeipa.promote-replica
+            - freeipa.check-directory-health
+            - freeipa.verify-membership
+            - freeipa.verify-replication
+    Device:
+      type: object
+      additionalProperties: false
+      required: [hostname, platform]
+      properties:
+        hostname: { type: string, minLength: 1 }
+        platform: { type: string, enum: [windows, linux, android, other] }
+        machine_id: { type: string }
+        serial: { type: string }
+        addresses: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+    AgentEnrollmentRequest:
+      oneOf:
+        - $ref: '#/components/schemas/AgentEnrollmentV1'
+        - $ref: '#/components/schemas/AgentEnrollmentV2'
+    AgentEnrollmentV1:
+      type: object
+      additionalProperties: false
+      required: [node_id, hostname]
+      properties:
+        contract_version: { type: string, const: agent.enrollment/v1 }
+        node_id: { type: string, minLength: 1, maxLength: 128 }
+        hostname: { type: string, minLength: 1, maxLength: 253 }
+        capabilities:
+          type: array
+          maxItems: 64
+          items: { type: string, minLength: 1, maxLength: 64 }
+    AgentEnrollmentV2:
+      type: object
+      additionalProperties: false
+      required:
+        - contract_version
+        - node_id
+        - hostname
+        - roles
+        - site_id
+        - management_zone_id
+        - collected_at
+        - hardware
+        - network_interfaces
+        - identity
+      properties:
+        contract_version: { type: string, const: agent.enrollment/v2 }
+        node_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        hostname:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: DNS hostname; normalized to lowercase.
+        capabilities:
+          type: array
+          maxItems: 64
+          items: { $ref: '#/components/schemas/AgentIdentifier64' }
+        roles:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: { $ref: '#/components/schemas/AgentNodeRole' }
+        site_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        management_zone_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        collected_at: { type: string, format: date-time }
+        hardware: { $ref: '#/components/schemas/AgentHardwareInventory' }
+        network_interfaces:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: { $ref: '#/components/schemas/AgentNetworkInterface' }
+        identity: { $ref: '#/components/schemas/AgentIdentityMetadata' }
+        capacity_observations:
+          type: array
+          maxItems: 256
+          items: { $ref: '#/components/schemas/AgentCapacityObservation' }
+    AgentEnrollmentNormalization:
+      type: object
+      additionalProperties: false
+      required: [node_id, hostname, preconditions, effects]
+      description: >-
+        Canonical v1 or v2 enrollment report. Extended fields are present only
+        for an explicit v2 request.
+      properties:
+        contract_version: { type: string, enum: [agent.enrollment/v1, agent.enrollment/v2] }
+        node_id: { type: string, minLength: 1, maxLength: 128 }
+        hostname: { type: string, minLength: 1, maxLength: 253 }
+        capabilities:
+          type: array
+          maxItems: 64
+          items: { type: string, minLength: 1, maxLength: 64 }
+        roles:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: { $ref: '#/components/schemas/AgentNodeRole' }
+        site_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        management_zone_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        collected_at: { type: string, format: date-time }
+        hardware: { $ref: '#/components/schemas/AgentHardwareInventory' }
+        network_interfaces:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: { $ref: '#/components/schemas/AgentNetworkInterface' }
+        identity: { $ref: '#/components/schemas/AgentIdentityMetadata' }
+        capacity_observations:
+          type: array
+          maxItems: 256
+          items: { $ref: '#/components/schemas/AgentCapacityObservation' }
+        preconditions: { $ref: '#/components/schemas/AgentEnrollmentPreconditions' }
+        effects: { $ref: '#/components/schemas/AgentEnrollmentEffects' }
+    AgentIdentifier:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._:-]*[A-Za-z0-9])?$'
+    AgentIdentifier64:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._:-]*[A-Za-z0-9])?$'
+    AgentNodeRole:
+      allOf:
+        - $ref: './openapi-distributed-core.yaml#/components/schemas/NodeRole'
+      description: Canonical Core role reported declaratively; never an authorization grant.
+    AgentCPUInventory:
+      type: object
+      additionalProperties: false
+      required: [model, sockets, physical_cores, logical_cores]
+      properties:
+        model: { type: string, minLength: 1, maxLength: 256 }
+        sockets: { type: integer, minimum: 1, maximum: 65535 }
+        physical_cores: { type: integer, minimum: 1, maximum: 65535 }
+        logical_cores: { type: integer, minimum: 1, maximum: 65535 }
+    AgentStorageDevice:
+      type: object
+      additionalProperties: false
+      required: [id, kind, capacity_bytes]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 128 }
+        kind: { type: string, enum: [hdd, ssd, nvme, other] }
+        capacity_bytes: { type: integer, minimum: 1 }
+        boot: { type: boolean, default: false }
+    AgentHardwareInventory:
+      type: object
+      additionalProperties: false
+      required: [architecture, cpu, memory_bytes, storage]
+      anyOf:
+        - required: [machine_id]
+        - required: [product_uuid]
+        - required: [serial_number]
+      properties:
+        machine_id: { type: string, minLength: 1, maxLength: 256 }
+        product_uuid: { type: string, minLength: 1, maxLength: 256 }
+        manufacturer: { type: string, minLength: 1, maxLength: 256 }
+        model: { type: string, minLength: 1, maxLength: 256 }
+        serial_number: { type: string, minLength: 1, maxLength: 256 }
+        architecture: { type: string, enum: [amd64, arm64] }
+        cpu: { $ref: '#/components/schemas/AgentCPUInventory' }
+        memory_bytes: { type: integer, minimum: 1 }
+        storage:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: { $ref: '#/components/schemas/AgentStorageDevice' }
+    AgentNetworkInterface:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, operational_state, zone, mtu]
+      properties:
+        id: { $ref: '#/components/schemas/AgentIdentifier' }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        kind: { type: string, enum: [physical, bond, bridge, vlan, virtual] }
+        mac_address:
+          type: string
+          description: 48-bit MAC address; required for physical interfaces.
+        operational_state: { type: string, enum: [up, down, unknown] }
+        zone:
+          type: string
+          enum: [unassigned, wan, lan, management, dmz, cluster, storage, backup, trusted]
+        addresses:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 64
+            description: IPv4 or IPv6 address with CIDR prefix length.
+        mtu: { type: integer, minimum: 68, maximum: 65535 }
+        link_speed_mbps: { type: integer, minimum: 0, maximum: 10000000 }
+        parent_interface_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        vlan_id: { type: integer, minimum: 1, maximum: 4094 }
+    AgentCertificateMetadata:
+      type: object
+      additionalProperties: false
+      required: [subject, issuer, serial_number, fingerprint_sha256, not_before, not_after, public_key_algorithm]
+      properties:
+        subject: { type: string, minLength: 1, maxLength: 512 }
+        issuer: { type: string, minLength: 1, maxLength: 512 }
+        serial_number: { type: string, minLength: 1, maxLength: 128 }
+        fingerprint_sha256:
+          type: string
+          minLength: 64
+          maxLength: 103
+          description: SHA-256 hex fingerprint; normalized to sha256 followed by 64 lowercase hex digits.
+        not_before: { type: string, format: date-time }
+        not_after: { type: string, format: date-time }
+        public_key_algorithm: { type: string, enum: [rsa, ecdsa, ed25519] }
+        dns_names:
+          type: array
+          maxItems: 32
+          items: { type: string, minLength: 1, maxLength: 253 }
+    AgentIdentityMetadata:
+      type: object
+      additionalProperties: false
+      required: [agent_id, installation_id, trusted_ca_fingerprint_sha256, certificate]
+      properties:
+        agent_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        installation_id: { $ref: '#/components/schemas/AgentIdentifier' }
+        trusted_ca_fingerprint_sha256:
+          type: string
+          minLength: 64
+          maxLength: 103
+        certificate: { $ref: '#/components/schemas/AgentCertificateMetadata' }
+    AgentCapacityObservation:
+      type: object
+      additionalProperties: false
+      required: [metric, target_id, value, unit, observed_at, evidence]
+      description: >-
+        Unit is validated against metric, and inventory-scoped targets must name
+        the reported node, storage device, or network interface.
+      properties:
+        metric:
+          type: string
+          enum:
+            - cpu.utilization
+            - memory.used
+            - storage.used
+            - storage.iops
+            - storage.latency
+            - storage.queue-depth
+            - network.throughput
+            - network.latency
+            - network.packet-loss
+            - database.latency
+            - database.transactions
+            - service.queue-depth
+        target_id: { type: string, minLength: 1, maxLength: 128 }
+        value: { type: number, minimum: 0, maximum: 1.0e+21 }
+        unit:
+          type: string
+          enum: [percent, bytes, operations-per-second, milliseconds, count, bits-per-second, transactions-per-second]
+        observed_at: { type: string, format: date-time }
+        evidence: { type: string, enum: [measured, estimated, benchmark] }
+    AgentEnrollmentPrecondition:
+      type: object
+      additionalProperties: false
+      required: [code, satisfied]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 128 }
+        satisfied: { type: boolean }
+        message: { type: string, maxLength: 256 }
+    AgentEnrollmentPreconditions:
+      type: object
+      additionalProperties: false
+      required: [ready, checks]
+      properties:
+        ready:
+          type: boolean
+          description: Must be true before a future mutating enrollment flow may admit the node.
+        checks:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: { $ref: '#/components/schemas/AgentEnrollmentPrecondition' }
+    AgentEnrollmentEffects:
+      type: object
+      additionalProperties: false
+      required: [persists_enrollment, network_mutation]
+      properties:
+        persists_enrollment: { type: boolean, const: false }
+        network_mutation: { type: boolean, const: false }

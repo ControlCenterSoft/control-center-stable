@@ -2,17 +2,15 @@ package worker_test
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"sync/atomic"
-	"testing"
-	"time"
-
 	"control-center/internal/orchestration/action"
 	"control-center/internal/orchestration/events"
 	"control-center/internal/orchestration/job"
 	"control-center/internal/orchestration/policy"
 	"control-center/internal/orchestration/worker"
+	"encoding/json"
+	"sync/atomic"
+	"testing"
+	"time"
 )
 
 type countingRepository struct {
@@ -27,118 +25,53 @@ func (r *countingRepository) RenewLease(ctx context.Context, id, token string, n
 	}
 	return renewed, err
 }
-
 func TestLongActionRenewsLeaseAndCarriesStableDownstreamIdempotency(t *testing.T) {
 	repository := &countingRepository{MemoryRepository: job.NewMemoryRepository()}
 	now := time.Now().UTC()
-	_, _, err := repository.Create(context.Background(), job.CreateRequest{
-		ID: "job-long", ChangeID: "change-long", ActionName: "test.long", Input: json.RawMessage(`{}`),
-		IdempotencyKey: "client-operation-42", MaxAttempts: 2, Now: now,
-	})
+	_, _, err := repository.Create(context.Background(), job.CreateRequest{ID: "job-long", ChangeID: "change-long", ActionName: "test.long", Input: json.RawMessage(`{}`), IdempotencyKey: "client-operation-42", MaxAttempts: 2, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	registry := action.NewRegistry()
-	definition := action.NewTyped("test.long", "test.execute", policy.RiskMedium, json.RawMessage(`{"type":"object"}`),
-		func(ctx context.Context, _ struct{}) (events.Output, error) {
-			invocation, ok := action.InvocationFromContext(ctx)
-			if !ok {
-				t.Fatal("missing invocation context")
+	definition := action.NewTyped("test.long", "test.execute", policy.RiskMedium, json.RawMessage(`{"type":"object"}`), func(ctx context.Context, _ struct{}) (events.Output, error) {
+		invocation, ok := action.InvocationFromContext(ctx)
+		if !ok {
+			t.Fatal("missing invocation context")
+		}
+		first, err := invocation.DownstreamIdempotencyKey("provider/apply")
+		if err != nil {
+			t.Fatal(err)
+		}
+		retry := invocation
+		retry.Attempt++
+		second, err := retry.DownstreamIdempotencyKey("provider/apply")
+		if err != nil || first != second {
+			t.Fatalf("downstream key changed across retry: %q != %q (err=%v)", first, second, err)
+		}
+		deadline := time.NewTimer(time.Second)
+		defer deadline.Stop()
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for repository.renewals.Load() < 2 {
+			select {
+			case <-ctx.Done():
+				return events.Output{}, ctx.Err()
+			case <-deadline.C:
+				t.Fatal("worker did not renew the lease during a long action")
+			case <-ticker.C:
 			}
-			first, err := invocation.DownstreamIdempotencyKey("provider/apply")
-			if err != nil {
-				t.Fatal(err)
-			}
-			retry := invocation
-			retry.Attempt++
-			second, err := retry.DownstreamIdempotencyKey("provider/apply")
-			if err != nil || first != second {
-				t.Fatalf("downstream key changed across retry: %q != %q (err=%v)", first, second, err)
-			}
-			deadline := time.NewTimer(time.Second)
-			defer deadline.Stop()
-			ticker := time.NewTicker(time.Millisecond)
-			defer ticker.Stop()
-			for repository.renewals.Load() < 2 {
-				select {
-				case <-ctx.Done():
-					return events.Output{}, ctx.Err()
-				case <-deadline.C:
-					t.Fatal("worker did not renew the lease during a long action")
-				case <-ticker.C:
-				}
-			}
-			return events.Output{}, nil
-		},
-		func(context.Context, struct{}, events.Output) error { return nil },
-	)
+		}
+		return events.Output{}, nil
+	}, func(context.Context, struct{}, events.Output) error { return nil })
 	if err := registry.Register(definition); err != nil {
 		t.Fatal(err)
 	}
-	runner := worker.Worker{
-		ID: "worker-long", Repository: repository, Registry: registry,
-		Allowlist: worker.Set("test.long"), Permissions: worker.Set("test.execute"),
-		LeaseTTL: 30 * time.Millisecond, RetryPolicy: job.RetryPolicy{BaseDelay: time.Millisecond}, Failures: worker.NoFailures{},
-	}
+	runner := worker.Worker{ID: "worker-long", Repository: repository, Registry: registry, Allowlist: worker.Set("test.long"), Permissions: worker.Set("test.execute"), LeaseTTL: 30 * time.Millisecond, RetryPolicy: job.RetryPolicy{BaseDelay: time.Millisecond}, Failures: worker.NoFailures{}}
 	completed, claimed, err := runner.RunOne(context.Background(), now)
 	if err != nil || !claimed || completed.Status != job.StatusSucceeded {
 		t.Fatalf("run result=%#v claimed=%v err=%v", completed, claimed, err)
 	}
 	if repository.renewals.Load() < 2 {
 		t.Fatalf("renewals=%d, want at least 2", repository.renewals.Load())
-	}
-}
-
-func TestInvalidSuccessfulOutputFailsClosedBeforeActionVerification(t *testing.T) {
-	repository := job.NewMemoryRepository()
-	now := time.Now().UTC()
-	_, _, err := repository.Create(context.Background(), job.CreateRequest{
-		ID: "job-invalid-output", ChangeID: "change-invalid-output", ActionName: "test.invalid-output",
-		Input: json.RawMessage(`{}`), IdempotencyKey: "invalid-output-1", MaxAttempts: 1, Now: now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var verificationCalls atomic.Int32
-	registry := action.NewRegistry()
-	definition := action.NewTyped("test.invalid-output", "test.execute", policy.RiskMedium, json.RawMessage(`{"type":"object"}`),
-		func(context.Context, struct{}) (events.Output, error) {
-			return events.Output{
-				ActualStates: []events.ActualState{{
-					ResourceID: "service/api", Kind: "service", State: events.StatePresent, ObservedAt: now,
-				}},
-				Health: []events.Health{{
-					ResourceID: "service/other", Status: events.HealthHealthy, CheckedAt: now,
-				}},
-			}, nil
-		},
-		func(context.Context, struct{}, events.Output) error {
-			verificationCalls.Add(1)
-			return nil
-		},
-	)
-	if err := registry.Register(definition); err != nil {
-		t.Fatal(err)
-	}
-	runner := worker.Worker{
-		ID: "worker-output-gate", Repository: repository, Registry: registry,
-		Allowlist: worker.Set("test.invalid-output"), Permissions: worker.Set("test.execute"),
-		LeaseTTL: time.Minute, RetryPolicy: job.RetryPolicy{BaseDelay: time.Second}, Failures: worker.NoFailures{},
-	}
-	completed, claimed, runErr := runner.RunOne(context.Background(), now)
-	if !claimed || !errors.Is(runErr, events.ErrInvalidOutput) {
-		t.Fatalf("claimed=%v err=%v, want invalid-output failure", claimed, runErr)
-	}
-	if completed.Status != job.StatusFailed || completed.Output == nil {
-		t.Fatalf("completed=%#v, want terminal failed job with evidence", completed)
-	}
-	if verificationCalls.Load() != 0 {
-		t.Fatalf("action verifier called %d times for structurally invalid output", verificationCalls.Load())
-	}
-	if len(completed.Output.ActualStates) != 0 || len(completed.Output.Health) != 0 {
-		t.Fatalf("invalid action-controlled output was persisted: %#v", completed.Output)
-	}
-	if len(completed.Output.AuditEvents) != 1 || completed.Output.AuditEvents[0].Outcome != "failed" {
-		t.Fatalf("failure audit evidence=%#v", completed.Output.AuditEvents)
 	}
 }

@@ -31,13 +31,11 @@ type Filter struct {
 	OrganizationID string
 	Kind           string
 }
-
 type Reader interface {
 	List(context.Context, Filter) ([]Resource, error)
 	Get(context.Context, string) (Resource, error)
 	Ready(context.Context) error
 }
-
 type MemoryRegistry struct {
 	mu        sync.RWMutex
 	resources map[string]Resource
@@ -56,14 +54,12 @@ func NewMemoryRegistry(initial []Resource) (*MemoryRegistry, error) {
 	}
 	return registry, nil
 }
-
 func (r *MemoryRegistry) List(ctx context.Context, filter Filter) ([]Resource, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	result := make([]Resource, 0, len(r.resources))
 	for _, resource := range r.resources {
 		if filter.OrganizationID != "" && resource.OrganizationID != filter.OrganizationID {
@@ -82,7 +78,6 @@ func (r *MemoryRegistry) List(ctx context.Context, filter Filter) ([]Resource, e
 	})
 	return result, nil
 }
-
 func (r *MemoryRegistry) Get(ctx context.Context, id string) (Resource, error) {
 	if err := ctx.Err(); err != nil {
 		return Resource{}, err
@@ -95,11 +90,7 @@ func (r *MemoryRegistry) Get(ctx context.Context, id string) (Resource, error) {
 	}
 	return clone(resource), nil
 }
-
-func (r *MemoryRegistry) Ready(ctx context.Context) error {
-	return ctx.Err()
-}
-
+func (r *MemoryRegistry) Ready(ctx context.Context) error { return ctx.Err() }
 func LoadSnapshot(path string) ([]Resource, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
@@ -114,7 +105,6 @@ func LoadSnapshot(path string) ([]Resource, error) {
 	}
 	return snapshot, nil
 }
-
 func validate(resource Resource) error {
 	if strings.TrimSpace(resource.ID) == "" {
 		return errors.New("resource id must not be empty")
@@ -133,7 +123,6 @@ func validate(resource Resource) error {
 	}
 	return nil
 }
-
 func clone(resource Resource) Resource {
 	copyOfResource := resource
 	if resource.Labels != nil {

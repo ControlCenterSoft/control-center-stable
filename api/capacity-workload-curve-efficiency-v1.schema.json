@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.example/schemas/capacity-workload-curve-efficiency-v1.schema.json",
+  "title": "Control Center Capacity Workload Curve Efficiency v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "report_id", "curve_id", "scope_id", "workload_unit", "policy", "segments", "lowest_efficiency", "status", "reason", "recommended_action", "confidence", "advisory_only", "production_mutation"],
+  "properties": {
+    "schema_version": {"const": "capacity.workload-curve-efficiency/v1"},
+    "report_id": {"type": "string", "pattern": "^wce-[a-f0-9]{24}$"},
+    "curve_id": {"type": "string", "pattern": "^wlc-[a-f0-9]{24}$"},
+    "scope_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "workload_unit": {"enum": ["devices", "concurrent-sessions", "jobs-per-minute", "requests-per-second", "instances"]},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_efficiency_ratio", "minimum_confidence"],
+      "properties": {
+        "minimum_efficiency_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "minimum_confidence": {"enum": ["low", "medium", "high"]}
+      }
+    },
+    "segments": {
+      "type": "array",
+      "maxItems": 63,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["left_point_id", "right_point_id", "resource_factor_start", "resource_factor_end", "safe_workload_start", "safe_workload_end", "marginal_workload_gain", "efficiency_ratio"],
+        "properties": {
+          "left_point_id": {"type": "string"},
+          "right_point_id": {"type": "string"},
+          "resource_factor_start": {"type": "number", "exclusiveMinimum": 0},
+          "resource_factor_end": {"type": "number", "exclusiveMinimum": 0},
+          "safe_workload_start": {"type": "number", "exclusiveMinimum": 0},
+          "safe_workload_end": {"type": "number", "exclusiveMinimum": 0},
+          "marginal_workload_gain": {"type": "number", "minimum": 0},
+          "efficiency_ratio": {"type": "number", "minimum": 0}
+        }
+      }
+    },
+    "lowest_efficiency": {"type": "number", "minimum": 0},
+    "status": {"enum": ["efficient", "diminishing-returns", "collect-evidence", "blocked"]},
+    "reason": {"type": "string", "minLength": 1},
+    "recommended_action": {"enum": ["none", "collect-evidence", "inspect-bottleneck-before-scaling"]},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "advisory_only": {"const": true},
+    "production_mutation": {"const": false}
+  }
+}

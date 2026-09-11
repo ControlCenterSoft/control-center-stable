@@ -37,3 +37,21 @@ func TestPasswordPolicyAndMalformedHash(t *testing.T) {
 		t.Fatalf("hostile memory parameter accepted: ok=%v err=%v", ok, err)
 	}
 }
+
+func TestBootstrapAdminPasswordIsNarrowPolicyException(t *testing.T) {
+	h := NewPasswordHasher()
+	if _, err := h.Hash("admin"); err == nil {
+		t.Fatal("normal password policy accepted bootstrap password")
+	}
+	encoded, err := h.HashBootstrapAdminPassword()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(encoded, "admin") {
+		t.Fatal("bootstrap hash contains plaintext")
+	}
+	ok, err := h.Verify("admin", encoded)
+	if err != nil || !ok {
+		t.Fatalf("bootstrap password verification failed: ok=%v err=%v", ok, err)
+	}
+}

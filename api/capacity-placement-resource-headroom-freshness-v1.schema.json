@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "capacity-placement-resource-headroom-freshness-v1.schema.json",
+  "title": "Capacity Placement Resource Headroom Freshness Gate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gate_id",
+    "headroom_envelope_id",
+    "derived_snapshot_id",
+    "placement_snapshot_id",
+    "advice_id",
+    "scope_id",
+    "headroom_evaluated_at",
+    "checked_at",
+    "candidates",
+    "all_current",
+    "advice_reuse_permitted",
+    "recommended_action",
+    "advisory_only",
+    "placement_authorized",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {"const": "capacity.placement-resource-headroom-freshness/v1"},
+    "gate_id": {"type": "string", "pattern": "^prhg-[0-9a-f]{24}$"},
+    "headroom_envelope_id": {"type": "string", "pattern": "^prh-[0-9a-f]{24}$"},
+    "derived_snapshot_id": {"type": "string", "pattern": "^pade-[0-9a-f]{24}$"},
+    "placement_snapshot_id": {"type": "string", "pattern": "^pas-[0-9a-f]{24}$"},
+    "advice_id": {"type": "string", "pattern": "^pa-[0-9a-f]{24}$"},
+    "scope_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "headroom_evaluated_at": {"type": "string", "format": "date-time"},
+    "checked_at": {"type": "string", "format": "date-time"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "all_current": {"type": "boolean"},
+    "advice_reuse_permitted": {"type": "boolean"},
+    "recommended_action": {"enum": ["none", "collect-evidence"]},
+    "advisory_only": {"const": true},
+    "placement_authorized": {"const": false},
+    "production_mutation": {"const": false}
+  },
+  "$defs": {
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "score"],
+      "properties": {
+        "level": {"enum": ["low", "medium", "high", "certified"]},
+        "score": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "constraint_ids": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 255}
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "status",
+        "reason",
+        "oldest_observation_age_seconds",
+        "minimum_freshness_remaining_seconds",
+        "stale_constraint_ids",
+        "non_measured_constraint_ids",
+        "confidence",
+        "advice_reusable",
+        "recommended_action"
+      ],
+      "properties": {
+        "node_id": {"type": "string", "minLength": 1, "maxLength": 255},
+        "status": {"enum": ["current", "degraded-evidence", "stale"]},
+        "reason": {
+          "enum": [
+            "exact-current-measured-headroom",
+            "non-measured-constraint-evidence",
+            "low-confidence-placement-evidence",
+            "constraint-observation-stale"
+          ]
+        },
+        "oldest_observation_age_seconds": {"type": "integer", "minimum": 0},
+        "minimum_freshness_remaining_seconds": {"type": "integer"},
+        "stale_constraint_ids": {"$ref": "#/$defs/constraint_ids"},
+        "non_measured_constraint_ids": {"$ref": "#/$defs/constraint_ids"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "advice_reusable": {"type": "boolean"},
+        "recommended_action": {
+          "enum": ["none", "collect-current-telemetry", "collect-measured-evidence"]
+        }
+      }
+    }
+  }
+}

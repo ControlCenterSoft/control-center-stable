@@ -18,10 +18,6 @@ type idempotencyRecord struct {
 	jobID       string
 	fingerprint string
 }
-
-// MemoryRepository is a concurrency-safe executable specification of the
-// durable repository contract. It is intended for tests and single-process
-// development, not production persistence.
 type MemoryRepository struct {
 	mu          sync.RWMutex
 	jobs        map[string]Job
@@ -31,7 +27,6 @@ type MemoryRepository struct {
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{jobs: make(map[string]Job), idempotency: make(map[string]idempotencyRecord)}
 }
-
 func (r *MemoryRepository) Create(ctx context.Context, request CreateRequest) (Job, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, false, err
@@ -58,16 +53,11 @@ func (r *MemoryRepository) Create(ctx context.Context, request CreateRequest) (J
 		return Job{}, false, fmt.Errorf("job id already exists: %s", request.ID)
 	}
 	now := request.Now.UTC()
-	created := Job{
-		ID: request.ID, ChangeID: request.ChangeID, ActionName: request.ActionName,
-		Input: append(json.RawMessage(nil), request.Input...), IdempotencyKey: request.IdempotencyKey,
-		Status: StatusQueued, MaxAttempts: request.MaxAttempts, CreatedAt: now, UpdatedAt: now, Version: 1,
-	}
+	created := Job{ID: request.ID, ChangeID: request.ChangeID, ActionName: request.ActionName, Input: append(json.RawMessage(nil), request.Input...), IdempotencyKey: request.IdempotencyKey, Status: StatusQueued, MaxAttempts: request.MaxAttempts, CreatedAt: now, UpdatedAt: now, Version: 1}
 	r.jobs[created.ID] = created
 	r.idempotency[request.IdempotencyKey] = idempotencyRecord{jobID: created.ID, fingerprint: fingerprint}
 	return clone(created), true, nil
 }
-
 func (r *MemoryRepository) Get(ctx context.Context, id string) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
@@ -80,7 +70,6 @@ func (r *MemoryRepository) Get(ctx context.Context, id string) (Job, error) {
 	}
 	return clone(found), nil
 }
-
 func (r *MemoryRepository) List(ctx context.Context, filter Filter) ([]Job, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -105,7 +94,6 @@ func (r *MemoryRepository) List(ctx context.Context, filter Filter) ([]Job, erro
 	})
 	return result, nil
 }
-
 func (r *MemoryRepository) Claim(ctx context.Context, workerID string, now time.Time, ttl time.Duration) (Job, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, false, err
@@ -136,9 +124,7 @@ func (r *MemoryRepository) Claim(ctx context.Context, workerID string, now time.
 			r.jobs[id] = candidate
 			continue
 		}
-		eligible := candidate.Status == StatusQueued ||
-			(candidate.Status == StatusRetryWait && !candidate.NextAttemptAt.After(now)) ||
-			(candidate.Status == StatusRunning && candidate.Lease != nil && !candidate.Lease.ExpiresAt.After(now))
+		eligible := candidate.Status == StatusQueued || (candidate.Status == StatusRetryWait && !candidate.NextAttemptAt.After(now)) || (candidate.Status == StatusRunning && candidate.Lease != nil && !candidate.Lease.ExpiresAt.After(now))
 		if !eligible {
 			continue
 		}
@@ -157,15 +143,12 @@ func (r *MemoryRepository) Claim(ctx context.Context, workerID string, now time.
 		candidate.LastError = ""
 		candidate.Version++
 		candidate.UpdatedAt = now.UTC()
-		candidate.Lease = &Lease{
-			Token: leaseToken(candidate, workerID, now), WorkerID: workerID, ExpiresAt: now.UTC().Add(ttl),
-		}
+		candidate.Lease = &Lease{Token: leaseToken(candidate, workerID, now), WorkerID: workerID, ExpiresAt: now.UTC().Add(ttl)}
 		r.jobs[id] = candidate
 		return clone(candidate), true, nil
 	}
 	return Job{}, false, nil
 }
-
 func (r *MemoryRepository) RenewLease(ctx context.Context, id, token string, now time.Time, ttl time.Duration) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
@@ -185,15 +168,10 @@ func (r *MemoryRepository) RenewLease(ctx context.Context, id, token string, now
 	r.jobs[id] = found
 	return clone(found), nil
 }
-
 func (r *MemoryRepository) Succeed(ctx context.Context, id, token string, output events.Output, now time.Time) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
 	}
-	if err := output.ValidateSuccessful(); err != nil {
-		return Job{}, err
-	}
-	output = output.Canonical()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	found, err := r.leased(id, token, now)
@@ -213,7 +191,6 @@ func (r *MemoryRepository) Succeed(ctx context.Context, id, token string, output
 	r.jobs[id] = found
 	return clone(found), nil
 }
-
 func (r *MemoryRepository) Fail(ctx context.Context, id, token, message string, output events.Output, policy RetryPolicy, now time.Time) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
@@ -221,10 +198,6 @@ func (r *MemoryRepository) Fail(ctx context.Context, id, token, message string, 
 	if message == "" {
 		return Job{}, errors.New("failure message is required")
 	}
-	if err := output.Validate(); err != nil {
-		return Job{}, err
-	}
-	output = output.Canonical()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	found, err := r.leased(id, token, now)
@@ -232,8 +205,8 @@ func (r *MemoryRepository) Fail(ctx context.Context, id, token, message string, 
 		return Job{}, err
 	}
 	found.LastError = message
-	copyOfOutput := cloneOutput(output)
-	found.Output = &copyOfOutput
+	copy := cloneOutput(output)
+	found.Output = &copy
 	found.Lease = nil
 	if found.Status == StatusCancelRequested {
 		found.Status = StatusCancelled
@@ -249,7 +222,6 @@ func (r *MemoryRepository) Fail(ctx context.Context, id, token, message string, 
 	r.jobs[id] = found
 	return clone(found), nil
 }
-
 func (r *MemoryRepository) RequestCancel(ctx context.Context, id string, now time.Time) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
@@ -274,7 +246,6 @@ func (r *MemoryRepository) RequestCancel(ctx context.Context, id string, now tim
 	r.jobs[id] = found
 	return clone(found), nil
 }
-
 func (r *MemoryRepository) leased(id, token string, now time.Time) (Job, error) {
 	found, ok := r.jobs[id]
 	if !ok {
@@ -288,7 +259,6 @@ func (r *MemoryRepository) leased(id, token string, now time.Time) (Job, error) 
 	}
 	return found, nil
 }
-
 func fingerprint(request CreateRequest) string {
 	h := sha256.New()
 	h.Write([]byte(request.ChangeID))
@@ -298,13 +268,11 @@ func fingerprint(request CreateRequest) string {
 	h.Write(request.Input)
 	return hex.EncodeToString(h.Sum(nil))
 }
-
 func leaseToken(candidate Job, workerID string, now time.Time) string {
 	value := fmt.Sprintf("%s:%s:%d:%d", candidate.ID, workerID, candidate.Version, now.UnixNano())
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
-
 func retryDelay(attempt int, policy RetryPolicy) time.Duration {
 	base := policy.BaseDelay
 	if base <= 0 {
@@ -322,7 +290,6 @@ func retryDelay(attempt int, policy RetryPolicy) time.Duration {
 	}
 	return delay
 }
-
 func clone(source Job) Job {
 	copy := source
 	copy.Input = append(json.RawMessage(nil), source.Input...)
@@ -336,13 +303,8 @@ func clone(source Job) Job {
 	}
 	return copy
 }
-
 func cloneOutput(source events.Output) events.Output {
-	copy := events.Output{
-		ActualStates: append([]events.ActualState(nil), source.ActualStates...),
-		Health:       append([]events.Health(nil), source.Health...),
-		AuditEvents:  append([]events.AuditEvent(nil), source.AuditEvents...),
-	}
+	copy := events.Output{ActualStates: append([]events.ActualState(nil), source.ActualStates...), Health: append([]events.Health(nil), source.Health...), AuditEvents: append([]events.AuditEvent(nil), source.AuditEvents...)}
 	for i := range copy.ActualStates {
 		copy.ActualStates[i].Details = append(json.RawMessage(nil), source.ActualStates[i].Details...)
 	}

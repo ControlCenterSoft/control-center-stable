@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.local/api/capacity-placement-resource-reuse-gate-v1.schema.json",
+  "title": "Capacity Placement Resource Reuse Gate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gate_id",
+    "decision_id",
+    "reuse_consumption_id",
+    "strong_revalidation_id",
+    "resource_freshness_gate_id",
+    "headroom_envelope_id",
+    "derived_snapshot_id",
+    "placement_snapshot_id",
+    "advice_id",
+    "scope_id",
+    "checked_at",
+    "status",
+    "blocked_by",
+    "reason",
+    "recommended_action",
+    "reuse_allowed",
+    "rebuild_required",
+    "advisory_only",
+    "placement_authorized",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "capacity.placement-resource-reuse-gate/v1"
+    },
+    "gate_id": {
+      "type": "string",
+      "pattern": "^prrg-[a-f0-9]{24}$"
+    },
+    "decision_id": {
+      "type": "string",
+      "pattern": "^pard-[a-f0-9]{24}$"
+    },
+    "reuse_consumption_id": {
+      "type": "string",
+      "pattern": "^parc-[a-f0-9]{24}$"
+    },
+    "strong_revalidation_id": {
+      "type": "string",
+      "pattern": "^padr-[a-f0-9]{24}$"
+    },
+    "resource_freshness_gate_id": {
+      "type": "string",
+      "pattern": "^prhg-[a-f0-9]{24}$"
+    },
+    "headroom_envelope_id": {
+      "type": "string",
+      "pattern": "^prh-[a-f0-9]{24}$"
+    },
+    "derived_snapshot_id": {
+      "type": "string",
+      "pattern": "^pade-[a-f0-9]{24}$"
+    },
+    "placement_snapshot_id": {
+      "type": "string",
+      "pattern": "^pas-[a-f0-9]{24}$"
+    },
+    "advice_id": {
+      "type": "string",
+      "pattern": "^pa-[a-f0-9]{24}$"
+    },
+    "scope_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "allowed",
+        "blocked"
+      ]
+    },
+    "blocked_by": {
+      "enum": [
+        "none",
+        "strong-evidence",
+        "resource-evidence",
+        "lineage"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "exact-current-resource-headroom-reusable",
+        "strong-evidence-reuse-blocked",
+        "resource-headroom-evidence-not-current",
+        "placement-resource-lineage-drift"
+      ]
+    },
+    "recommended_action": {
+      "enum": [
+        "none",
+        "collect-current-placement-evidence",
+        "rebuild-placement-advice-from-current-evidence"
+      ]
+    },
+    "reuse_allowed": {
+      "type": "boolean"
+    },
+    "rebuild_required": {
+      "type": "boolean"
+    },
+    "advisory_only": {
+      "const": true
+    },
+    "placement_authorized": {
+      "const": false
+    },
+    "production_mutation": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "allowed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "blocked_by": {
+            "const": "none"
+          },
+          "reason": {
+            "const": "exact-current-resource-headroom-reusable"
+          },
+          "recommended_action": {
+            "const": "none"
+          },
+          "reuse_allowed": {
+            "const": true
+          },
+          "rebuild_required": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "blocked_by": {
+            "enum": [
+              "strong-evidence",
+              "resource-evidence",
+              "lineage"
+            ]
+          },
+          "recommended_action": {
+            "not": {
+              "const": "none"
+            }
+          },
+          "reuse_allowed": {
+            "const": false
+          },
+          "rebuild_required": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "blocked_by": {
+            "const": "strong-evidence"
+          }
+        },
+        "required": [
+          "blocked_by"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "const": "strong-evidence-reuse-blocked"
+          },
+          "recommended_action": {
+            "const": "rebuild-placement-advice-from-current-evidence"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "blocked_by": {
+            "const": "resource-evidence"
+          }
+        },
+        "required": [
+          "blocked_by"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "const": "resource-headroom-evidence-not-current"
+          },
+          "recommended_action": {
+            "const": "collect-current-placement-evidence"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "blocked_by": {
+            "const": "lineage"
+          }
+        },
+        "required": [
+          "blocked_by"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "const": "placement-resource-lineage-drift"
+          },
+          "recommended_action": {
+            "const": "rebuild-placement-advice-from-current-evidence"
+          }
+        }
+      }
+    }
+  ]
+}

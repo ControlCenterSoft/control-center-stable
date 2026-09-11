@@ -18,6 +18,7 @@ import (
 	"control-center/internal/identity/rbac"
 	"control-center/internal/orchestration/action"
 	"control-center/internal/orchestration/change"
+	orchestrationconfig "control-center/internal/orchestration/config"
 	"control-center/internal/orchestration/events"
 	"control-center/internal/orchestration/job"
 	"control-center/internal/orchestration/policy"
@@ -27,7 +28,6 @@ import (
 type testInput struct {
 	Name string `json:"name"`
 }
-
 type apiFixture struct {
 	handler     http.Handler
 	server      *Server
@@ -35,7 +35,6 @@ type apiFixture struct {
 	registry    *action.Registry
 	persistence *testPersistence
 }
-
 type countingJobRepository struct {
 	job.Repository
 	mu   sync.Mutex
@@ -48,12 +47,7 @@ func (r *countingJobRepository) Get(ctx context.Context, id string) (job.Job, er
 	r.mu.Unlock()
 	return r.Repository.Get(ctx, id)
 }
-
-func (r *countingJobRepository) getCount() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.gets
-}
+func (r *countingJobRepository) getCount() int { r.mu.Lock(); defer r.mu.Unlock(); return r.gets }
 
 type testPersistence struct {
 	mu                sync.Mutex
@@ -67,7 +61,6 @@ func (p *testPersistence) Load(context.Context) (PersistedState, error) {
 	defer p.mu.Unlock()
 	return p.state, nil
 }
-
 func (p *testPersistence) CreateRevision(_ context.Context, actor, key, fingerprint string, content json.RawMessage, now time.Time) (PersistedRevision, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -79,15 +72,15 @@ func (p *testPersistence) CreateRevision(_ context.Context, actor, key, fingerpr
 			return revision, nil
 		}
 	}
-	revision := PersistedRevision{
-		ID: "rev-test-" + string(rune('a'+len(p.state.Revisions))), Sequence: uint64(len(p.state.Revisions) + 1),
-		Digest: "sha256:" + fingerprint, Content: append(json.RawMessage(nil), content...), CreatedAt: now,
-		CreatedBy: actor, IdempotencyKey: key, Fingerprint: fingerprint,
+	revisionID := "rev-test-" + string(rune('a'+len(p.state.Revisions)))
+	model, err := orchestrationconfig.NewRevision(revisionID, uint64(len(p.state.Revisions)+1), now, content)
+	if err != nil {
+		return PersistedRevision{}, err
 	}
+	revision := PersistedRevision{ID: revisionID, Sequence: model.Sequence(), Digest: model.Digest(), Content: json.RawMessage(model.Content()), CreatedAt: now, CreatedBy: actor, IdempotencyKey: key, Fingerprint: fingerprint}
 	p.state.Revisions = append(p.state.Revisions, revision)
 	return revision, nil
 }
-
 func (p *testPersistence) CreateChange(_ context.Context, requested PersistedChange) (PersistedChange, bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -102,7 +95,6 @@ func (p *testPersistence) CreateChange(_ context.Context, requested PersistedCha
 	p.state.Changes = append(p.state.Changes, requested)
 	return requested, true, nil
 }
-
 func (p *testPersistence) UpdateChange(_ context.Context, updated PersistedChange) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -119,19 +111,16 @@ func (p *testPersistence) UpdateChange(_ context.Context, updated PersistedChang
 	}
 	return errors.New("change not found")
 }
-
 func (p *testPersistence) changeUpdateCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.changeUpdates
 }
-
 func (p *testPersistence) failNextChangeUpdates(count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.failChangeUpdates = count
 }
-
 func (p *testPersistence) changeState(id string) change.State {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -142,38 +131,24 @@ func (p *testPersistence) changeState(id string) change.State {
 	}
 	return ""
 }
-
 func newAPIFixture(t *testing.T) apiFixture {
 	return newAPIFixtureWith(t, &testPersistence{}, job.NewMemoryRepository())
 }
-
 func newAPIFixtureWith(t *testing.T, persistence *testPersistence, repository job.Repository) apiFixture {
 	t.Helper()
 	registry := action.NewRegistry()
 	register := func(name string, risk policy.Risk) {
 		t.Helper()
-		definition := action.NewTyped(name, string(rbac.PermissionActionsExecute), risk,
-			json.RawMessage(`{"type":"object","required":["name"]}`),
-			func(ctx context.Context, input testInput) (events.Output, error) {
-				invocation, ok := action.InvocationFromContext(ctx)
-				if !ok {
-					t.Fatal("action did not receive invocation context")
-				}
-				if _, err := invocation.DownstreamIdempotencyKey("test/store"); err != nil {
-					t.Fatal(err)
-				}
-				now := time.Now().UTC()
-				return events.Output{
-					ActualStates: []events.ActualState{{
-						ResourceID: input.Name, Kind: "test", State: events.StatePresent, ObservedAt: now,
-					}},
-					Health: []events.Health{{
-						ResourceID: input.Name, Status: events.HealthHealthy, CheckedAt: now,
-					}},
-				}, nil
-			},
-			func(context.Context, testInput, events.Output) error { return nil },
-		)
+		definition := action.NewTyped(name, string(rbac.PermissionActionsExecute), risk, json.RawMessage(`{"type":"object","required":["name"]}`), func(ctx context.Context, input testInput) (events.Output, error) {
+			invocation, ok := action.InvocationFromContext(ctx)
+			if !ok {
+				t.Fatal("action did not receive invocation context")
+			}
+			if _, err := invocation.DownstreamIdempotencyKey("test/store"); err != nil {
+				t.Fatal(err)
+			}
+			return events.Output{ActualStates: []events.ActualState{{ResourceID: input.Name, Kind: "test", State: events.StatePresent, ObservedAt: time.Now().UTC()}}}, nil
+		}, func(context.Context, testInput, events.Output) error { return nil })
 		if err := registry.Register(definition); err != nil {
 			t.Fatal(err)
 		}
@@ -181,35 +156,25 @@ func newAPIFixtureWith(t *testing.T, persistence *testPersistence, repository jo
 	register("test.medium", policy.RiskMedium)
 	register("test.high", policy.RiskHigh)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	server, err := New(Config{
-		Registry: registry, Jobs: repository, Persistence: persistence,
-		Middleware: func(next http.Handler) http.Handler { return commonapi.Middleware(logger, next) },
-		Evaluator:  policy.ThresholdEvaluator{PolicyID: "test-v1", ApprovalPermission: string(rbac.PermissionChangesApprove)},
-		Protect: func(permission rbac.Permission, next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("X-Test-Actor") == "" {
-					writeError(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required")
-					return
-				}
-				permissions := "," + r.Header.Get("X-Test-Permissions") + ","
-				if !strings.Contains(permissions, ",*,") && !strings.Contains(permissions, ","+string(permission)+",") {
-					writeError(w, r, http.StatusForbidden, "permission_denied", "Permission denied")
-					return
-				}
-				next.ServeHTTP(w, r)
-			})
-		},
-		Actor: func(r *http.Request) (string, bool) {
-			actor := r.Header.Get("X-Test-Actor")
-			return actor, actor != ""
-		},
-	})
+	server, err := New(Config{Registry: registry, Jobs: repository, Persistence: persistence, Middleware: func(next http.Handler) http.Handler { return commonapi.Middleware(logger, next) }, Evaluator: policy.ThresholdEvaluator{PolicyID: "test-v1", ApprovalPermission: string(rbac.PermissionChangesApprove)}, Protect: func(permission rbac.Permission, next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Test-Actor") == "" {
+				writeError(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required")
+				return
+			}
+			permissions := "," + r.Header.Get("X-Test-Permissions") + ","
+			if !strings.Contains(permissions, ",*,") && !strings.Contains(permissions, ","+string(permission)+",") {
+				writeError(w, r, http.StatusForbidden, "permission_denied", "Permission denied")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}, Actor: func(r *http.Request) (string, bool) { actor := r.Header.Get("X-Test-Actor"); return actor, actor != "" }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return apiFixture{handler: server.Handler(), server: server, repository: repository, registry: registry, persistence: persistence}
 }
-
 func (f apiFixture) request(t *testing.T, method, path, body, actor string, permissions ...rbac.Permission) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -226,7 +191,6 @@ func (f apiFixture) request(t *testing.T, method, path, body, actor string, perm
 	f.handler.ServeHTTP(result, request)
 	return result
 }
-
 func createQueuedTestChange(t *testing.T, fixture apiFixture, suffix string) changeView {
 	t.Helper()
 	revisionRequest := httptest.NewRequest(http.MethodPost, "/api/v1/config/revisions", strings.NewReader(`{"content":{"generation":1}}`))
@@ -243,10 +207,7 @@ func createQueuedTestChange(t *testing.T, fixture apiFixture, suffix string) cha
 	if err := json.Unmarshal(revisionResult.Body.Bytes(), &revision); err != nil {
 		t.Fatal(err)
 	}
-
-	changeRequest := httptest.NewRequest(http.MethodPost, "/api/v1/changes", strings.NewReader(
-		`{"action":"test.medium","input":{"name":"terminal-resource-`+suffix+`"},"revisionId":"`+revision.ID+`"}`,
-	))
+	changeRequest := httptest.NewRequest(http.MethodPost, "/api/v1/changes", strings.NewReader(`{"action":"test.medium","input":{"name":"terminal-resource-`+suffix+`"},"revisionId":"`+revision.ID+`"}`))
 	changeRequest.Header.Set("Content-Type", "application/json")
 	changeRequest.Header.Set("Idempotency-Key", "terminal-change-"+suffix)
 	changeRequest.Header.Set("If-Match-Revision", revision.ID)
@@ -266,27 +227,20 @@ func createQueuedTestChange(t *testing.T, fixture apiFixture, suffix string) cha
 	}
 	return created
 }
-
 func completeOneTestJob(t *testing.T, fixture apiFixture) job.Job {
 	t.Helper()
-	runner := worker.Worker{
-		ID: "terminal-test-worker", Repository: fixture.repository, Registry: fixture.registry,
-		Allowlist: worker.Set("test.medium"), Permissions: worker.Set(string(rbac.PermissionActionsExecute)),
-		LeaseTTL: time.Second, RetryPolicy: job.RetryPolicy{BaseDelay: time.Millisecond}, Failures: worker.NoFailures{},
-	}
+	runner := worker.Worker{ID: "terminal-test-worker", Repository: fixture.repository, Registry: fixture.registry, Allowlist: worker.Set("test.medium"), Permissions: worker.Set(string(rbac.PermissionActionsExecute)), LeaseTTL: time.Second, RetryPolicy: job.RetryPolicy{BaseDelay: time.Millisecond}, Failures: worker.NoFailures{}}
 	completed, claimed, err := runner.RunOne(context.Background(), time.Now().UTC())
 	if err != nil || !claimed || completed.Status != job.StatusSucceeded {
 		t.Fatalf("worker result=%#v claimed=%v err=%v", completed, claimed, err)
 	}
 	return completed
 }
-
 func reconciliationCandidateCount(server *Server) int {
 	server.mu.RLock()
 	defer server.mu.RUnlock()
 	return len(server.reconciliationCandidates)
 }
-
 func TestRoutesRequireAuthenticationAndRBAC(t *testing.T) {
 	fixture := newAPIFixture(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/config/revisions", strings.NewReader(`{"content":{"version":1}}`))
@@ -304,7 +258,6 @@ func TestRoutesRequireAuthenticationAndRBAC(t *testing.T) {
 	if !strings.Contains(result.Body.String(), `"correlation_id":"orchestration-auth-test"`) {
 		t.Fatalf("missing stable correlation envelope: %s", result.Body.String())
 	}
-
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/config/revisions", strings.NewReader(`{"content":{"version":1}}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "revision-1")
@@ -316,7 +269,6 @@ func TestRoutesRequireAuthenticationAndRBAC(t *testing.T) {
 		t.Fatalf("wrong permission status = %d body=%s", result.Code, result.Body.String())
 	}
 }
-
 func TestOrchestrationStateSurvivesServerRestart(t *testing.T) {
 	persistence := &testPersistence{}
 	repository := job.NewMemoryRepository()
@@ -351,7 +303,6 @@ func TestOrchestrationStateSurvivesServerRestart(t *testing.T) {
 	if err := json.Unmarshal(changeResult.Body.Bytes(), &original); err != nil {
 		t.Fatal(err)
 	}
-
 	restarted := newAPIFixtureWith(t, persistence, repository)
 	restarted.server.mu.RLock()
 	restored := restarted.server.changes[original.ID]
@@ -368,7 +319,6 @@ func TestOrchestrationStateSurvivesServerRestart(t *testing.T) {
 		t.Fatalf("idempotent replay after restart status=%d body=%s", changeResult.Code, changeResult.Body.String())
 	}
 }
-
 func TestStartupRepairsChangeAfterCrashFollowingTerminalJobWrite(t *testing.T) {
 	persistence := &testPersistence{}
 	repository := job.NewMemoryRepository()
@@ -384,7 +334,6 @@ func TestStartupRepairsChangeAfterCrashFollowingTerminalJobWrite(t *testing.T) {
 	if durable := persistence.changeState(created.ID); durable != change.StateQueued {
 		t.Fatalf("durable change before simulated restart=%s want=%s", durable, change.StateQueued)
 	}
-
 	restarted := newAPIFixtureWith(t, persistence, repository)
 	if durable := persistence.changeState(created.ID); durable != change.StateSucceeded {
 		t.Fatalf("durable change after startup repair=%s want=%s", durable, change.StateSucceeded)
@@ -413,7 +362,6 @@ func TestStartupRepairsChangeAfterCrashFollowingTerminalJobWrite(t *testing.T) {
 		t.Fatalf("consistent terminal change caused another persistence update: before=%d after=%d", updates, after)
 	}
 }
-
 func TestRuntimeReconciliationRetriesFailedChangePersistenceWithoutRestart(t *testing.T) {
 	fixture := newAPIFixture(t)
 	created := createQueuedTestChange(t, fixture, "runtime")
@@ -428,7 +376,6 @@ func TestRuntimeReconciliationRetriesFailedChangePersistenceWithoutRestart(t *te
 	if durable := fixture.persistence.changeState(created.ID); durable != change.StateQueued {
 		t.Fatalf("durable change after failed reconciliation=%s want=%s", durable, change.StateQueued)
 	}
-
 	if err := fixture.server.ReconcileTerminalJobs(context.Background(), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +399,6 @@ func TestRuntimeReconciliationRetriesFailedChangePersistenceWithoutRestart(t *te
 		t.Fatalf("consistent terminal change caused another persistence update: before=%d after=%d", updates, after)
 	}
 }
-
 func TestReconciliationIndexSkipsLargeCleanTerminalHistory(t *testing.T) {
 	repository := &countingJobRepository{Repository: job.NewMemoryRepository()}
 	fixture := newAPIFixtureWith(t, &testPersistence{}, repository)
@@ -464,7 +410,6 @@ func TestReconciliationIndexSkipsLargeCleanTerminalHistory(t *testing.T) {
 	if candidates := reconciliationCandidateCount(fixture.server); candidates != 0 {
 		t.Fatalf("candidates after direct reconciliation=%d want=0", candidates)
 	}
-
 	fixture.server.mu.Lock()
 	terminal := fixture.server.changes[created.ID]
 	for i := 0; i < 10_000; i++ {
@@ -482,7 +427,6 @@ func TestReconciliationIndexSkipsLargeCleanTerminalHistory(t *testing.T) {
 		t.Fatalf("clean terminal history entered reconciliation index: %d", candidates)
 	}
 }
-
 func TestOpenAPI03RoutesDriveDurableExecution(t *testing.T) {
 	fixture := newAPIFixture(t)
 	revisionRequest := httptest.NewRequest(http.MethodPost, "/api/v1/config/revisions", strings.NewReader(`{"content":{"version":1}}`))
@@ -499,12 +443,10 @@ func TestOpenAPI03RoutesDriveDurableExecution(t *testing.T) {
 	if err := json.Unmarshal(revisionResult.Body.Bytes(), &revision); err != nil {
 		t.Fatal(err)
 	}
-
 	actions := fixture.request(t, http.MethodGet, "/api/v1/actions", "", "operator", rbac.PermissionActionsRead)
 	if actions.Code != http.StatusOK || !strings.Contains(actions.Body.String(), "test.medium") {
 		t.Fatalf("actions status=%d body=%s", actions.Code, actions.Body.String())
 	}
-
 	createChange := func(actionName, key string) changeView {
 		body := `{"action":"` + actionName + `","input":{"name":"resource-1"},"revisionId":"` + revision.ID + `"}`
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/changes", strings.NewReader(body))
@@ -524,16 +466,11 @@ func TestOpenAPI03RoutesDriveDurableExecution(t *testing.T) {
 		}
 		return response
 	}
-
 	medium := createChange("test.medium", "medium-1")
 	if medium.State != "queued" || medium.JobID == "" {
 		t.Fatalf("medium change = %#v", medium)
 	}
-	runner := worker.Worker{
-		ID: "test-worker", Repository: fixture.repository, Registry: fixture.registry,
-		Allowlist: worker.Set("test.medium", "test.high"), Permissions: worker.Set(string(rbac.PermissionActionsExecute)),
-		LeaseTTL: time.Second, RetryPolicy: job.RetryPolicy{BaseDelay: time.Millisecond}, Failures: worker.NoFailures{},
-	}
+	runner := worker.Worker{ID: "test-worker", Repository: fixture.repository, Registry: fixture.registry, Allowlist: worker.Set("test.medium", "test.high"), Permissions: worker.Set(string(rbac.PermissionActionsExecute)), LeaseTTL: time.Second, RetryPolicy: job.RetryPolicy{BaseDelay: time.Millisecond}, Failures: worker.NoFailures{}}
 	completed, claimed, err := runner.RunOne(context.Background(), time.Now().UTC())
 	if err != nil || !claimed || completed.Status != job.StatusSucceeded {
 		t.Fatalf("worker result=%#v claimed=%v err=%v", completed, claimed, err)
@@ -551,7 +488,6 @@ func TestOpenAPI03RoutesDriveDurableExecution(t *testing.T) {
 	if jobResult.Code != http.StatusOK || !strings.Contains(jobResult.Body.String(), `"status":"succeeded"`) {
 		t.Fatalf("job status=%d body=%s", jobResult.Code, jobResult.Body.String())
 	}
-
 	high := createChange("test.high", "high-1")
 	if high.State != "pending_approval" || high.JobID != "" {
 		t.Fatalf("high change before approval = %#v", high)

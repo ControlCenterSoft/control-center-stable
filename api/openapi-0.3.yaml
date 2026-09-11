@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Control Center Change Execution API fragment
-  version: 0.3.1
+  version: 0.3.0
 security:
   - bearerAuth: []
   - sessionCookie: []
@@ -31,8 +31,7 @@ paths:
     get:
       operationId: listActions
       responses:
-        '200':
-          description: Registered action descriptors
+        '200': { description: Registered action descriptors }
         default: { $ref: '#/components/responses/APIError' }
   /api/v1/changes:
     post:
@@ -159,7 +158,7 @@ components:
           type: string
           enum: [pending_approval, approved, queued, executing, verifying, succeeded, failed, cancelled, rejected]
         version: { type: integer, format: int64, minimum: 1 }
-        jobId: { type: string, description: Durable job created after required approvals are satisfied }
+        jobId: { type: string }
     Job:
       type: object
       required: [id, changeId, actionName, status, attempt, maxAttempts, createdAt, updatedAt]
@@ -177,54 +176,11 @@ components:
         output: { $ref: '#/components/schemas/ActionOutput' }
     ActionOutput:
       type: object
-      additionalProperties: false
       required: [actualStates, health, auditEvents]
       properties:
-        actualStates:
-          type: array
-          maxItems: 256
-          items: { $ref: '#/components/schemas/ActualState' }
-        health:
-          type: array
-          maxItems: 256
-          items: { $ref: '#/components/schemas/HealthObservation' }
-        auditEvents:
-          type: array
-          maxItems: 1024
-          items: { $ref: '#/components/schemas/ActionAuditEvent' }
-    ActualState:
-      type: object
-      additionalProperties: false
-      required: [resourceId, kind, state, observedAt]
-      properties:
-        resourceId: { type: string, minLength: 1, maxLength: 256 }
-        kind: { type: string, minLength: 1, maxLength: 256 }
-        state: { type: string, enum: [present, absent, unknown] }
-        observedAt: { type: string, format: date-time }
-        revision: { type: string, maxLength: 256 }
-        details: { type: object, additionalProperties: true }
-    HealthObservation:
-      type: object
-      additionalProperties: false
-      required: [resourceId, status, checkedAt]
-      properties:
-        resourceId: { type: string, minLength: 1, maxLength: 256 }
-        status: { type: string, enum: [healthy, degraded, failed, unknown] }
-        checkedAt: { type: string, format: date-time }
-        message: { type: string, maxLength: 4096 }
-    ActionAuditEvent:
-      type: object
-      additionalProperties: false
-      required: [id, occurredAt, actor, action, outcome, correlationId]
-      properties:
-        id: { type: string, minLength: 1, maxLength: 256 }
-        occurredAt: { type: string, format: date-time }
-        actor: { type: string, minLength: 1, maxLength: 256 }
-        action: { type: string, minLength: 1, maxLength: 256 }
-        resourceId: { type: string, maxLength: 256 }
-        outcome: { type: string, minLength: 1, maxLength: 256 }
-        correlationId: { type: string, minLength: 1, maxLength: 256 }
-        details: { type: object, additionalProperties: true }
+        actualStates: { type: array, items: { type: object, additionalProperties: true } }
+        health: { type: array, items: { type: object, additionalProperties: true } }
+        auditEvents: { type: array, items: { type: object, additionalProperties: true } }
     ErrorEnvelope:
       type: object
       required: [error]

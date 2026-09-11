@@ -1,0 +1,522 @@
+openapi: 3.1.0
+info:
+  title: Control Center Recovery Metadata Contracts
+  version: 0.4.0
+  description: >-
+    Schema-only fragment for RecoveryPoint, Backup, Restore, recovery-objective
+    evidence, provider, and fencing metadata. Top-level recovery objects reuse
+    the distributed ObjectMetadata envelope established by the Core contract.
+    These schemas do not define an execution endpoint and do not authorize
+    backup, restore, fencing, network, or storage operations.
+paths: {}
+components:
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,253}[A-Za-z0-9])?$'
+    DistributedObjectMetadata:
+      type: object
+      required: [object_id, scope_id, owner_scope, generation, resource_version, created_at, updated_at]
+      properties:
+        object_id: { $ref: '#/components/schemas/Identifier' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        owner_scope: { $ref: '#/components/schemas/Identifier' }
+        generation:
+          type: integer
+          format: uint64
+          minimum: 1
+          description: Desired semantic generation; advances only when desired content changes.
+        resource_version:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Opaque persistence/synchronization token; never parse, sort or increment it client-side.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SemanticVersion:
+      type: string
+      pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    SHA256Digest:
+      type: string
+      pattern: '^sha256:[0-9a-f]{64}$'
+    ObjectKind:
+      type: string
+      enum: [NODE, SERVICE, DATABASE, CONFIGURATION, USER, GROUP, POLICY, APPLICATION, SITE, CONTROL_PLANE]
+    ObjectReference:
+      type: object
+      additionalProperties: false
+      description: Its scope_id must match the enclosing recovery metadata scope_id.
+      required: [kind, object_id, scope_id, statefulness]
+      properties:
+        kind: { $ref: '#/components/schemas/ObjectKind' }
+        object_id: { $ref: '#/components/schemas/Identifier' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        statefulness: { type: string, enum: [STATELESS, STATEFUL] }
+    FailureMetadata:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+        message: { type: string, minLength: 1, maxLength: 512 }
+        retryable: { type: boolean }
+    RecoveryPoint:
+      allOf:
+        - { $ref: '#/components/schemas/DistributedObjectMetadata' }
+        - type: object
+          required:
+            - schema_version
+            - state
+            - trigger
+            - consistency
+            - objects
+            - backup_ids
+          properties:
+            schema_version: { type: string, const: recovery.point/v1 }
+            state: { type: string, enum: [CREATING, READY, PARTIAL, FAILED, EXPIRED] }
+            trigger: { type: string, enum: [MANUAL, SCHEDULED, PRE_CHANGE, PRE_DESTRUCTIVE] }
+            consistency: { type: string, enum: [CRASH_CONSISTENT, APPLICATION_CONSISTENT, OBJECT_VERSIONED] }
+            objects:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/ObjectReference' }
+            backup_ids:
+              type: array
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/Identifier' }
+            change_id: { $ref: '#/components/schemas/Identifier' }
+            expires_at: { type: string, format: date-time }
+            failure: { $ref: '#/components/schemas/FailureMetadata' }
+        - if:
+            properties: { trigger: { enum: [PRE_CHANGE, PRE_DESTRUCTIVE] } }
+          then:
+            required: [change_id]
+        - if:
+            properties: { state: { const: CREATING } }
+          then:
+            not: { required: [failure] }
+        - if:
+            properties: { state: { const: READY } }
+          then:
+            properties: { backup_ids: { minItems: 1 } }
+            not: { required: [failure] }
+        - if:
+            properties: { state: { const: PARTIAL } }
+          then:
+            required: [failure]
+            properties: { backup_ids: { minItems: 1 } }
+        - if:
+            properties: { state: { const: FAILED } }
+          then:
+            required: [failure]
+            properties: { backup_ids: { maxItems: 0 } }
+        - if:
+            properties: { state: { const: EXPIRED } }
+          then:
+            required: [expires_at]
+      unevaluatedProperties: false
+      description: >-
+        Immutable consistency boundary metadata. READY requires at least one
+        backup; PARTIAL/FAILED require failure metadata; PRE_CHANGE and
+        PRE_DESTRUCTIVE require change_id. Cross-field rules are enforced by
+        ValidateRecoveryPoint.
+    ProviderCapability:
+      type: string
+      enum: [BACKUP, RESTORE, BASE_BACKUP, WAL_ARCHIVE, PITR, SNAPSHOT, OBJECT_VERSION, OBJECT_RESTORE, RESTORE_DRILL, FENCING]
+    ProviderMetadata:
+      type: object
+      additionalProperties: false
+      description: >-
+        Provider and adapter identity plus opaque operation/reference IDs. It
+        intentionally excludes credentials, tokens, endpoints, and executable
+        configuration.
+      required: [provider_id, adapter_id, version, capabilities]
+      properties:
+        provider_id: { $ref: '#/components/schemas/Identifier' }
+        adapter_id: { $ref: '#/components/schemas/Identifier' }
+        version: { $ref: '#/components/schemas/SemanticVersion' }
+        repository_id: { $ref: '#/components/schemas/Identifier' }
+        operation_id: { $ref: '#/components/schemas/Identifier' }
+        capabilities:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ProviderCapability' }
+    EvidenceKind:
+      type: string
+      enum: [CHECKSUM, PROVIDER_LOG, RESTORE_DRILL, FUNCTIONAL_TEST, FENCING_CONFIRMATION]
+    EvidenceReference:
+      type: object
+      additionalProperties: false
+      required: [id, kind, reference, digest, recorded_at]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        kind: { $ref: '#/components/schemas/EvidenceKind' }
+        reference: { type: string, minLength: 1, maxLength: 512 }
+        digest: { $ref: '#/components/schemas/SHA256Digest' }
+        recorded_at: { type: string, format: date-time }
+    BackupArtifact:
+      type: object
+      additionalProperties: false
+      description: Repository-relative immutable metadata; never an instruction to access storage.
+      required: [repository_id, object_key, size_bytes, digest, encryption]
+      properties:
+        repository_id: { $ref: '#/components/schemas/Identifier' }
+        object_key:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: '^(?!/)(?!.*(?:^|/)\.\.?(?:/|$))(?!.*\\)(?!.*//)(?!\s)(?!.*\s$)(?!.*\u0000).+$'
+        size_bytes: { type: integer, minimum: 1 }
+        digest: { $ref: '#/components/schemas/SHA256Digest' }
+        encryption: { type: string, enum: [NONE, PROVIDER_MANAGED, CUSTOMER_MANAGED] }
+        encryption_key_id: { $ref: '#/components/schemas/Identifier' }
+      allOf:
+        - if:
+            properties: { encryption: { const: CUSTOMER_MANAGED } }
+          then:
+            required: [encryption_key_id]
+        - if:
+            properties: { encryption: { enum: [NONE, PROVIDER_MANAGED] } }
+          then:
+            not: { required: [encryption_key_id] }
+    PITRWindow:
+      type: object
+      additionalProperties: false
+      required: [timeline, start_lsn, end_lsn, earliest_restore_at, latest_restore_at]
+      properties:
+        timeline: { type: integer, minimum: 1 }
+        start_lsn: { type: string, pattern: '^[0-9A-F]+/[0-9A-F]+$' }
+        end_lsn: { type: string, pattern: '^[0-9A-F]+/[0-9A-F]+$' }
+        earliest_restore_at: { type: string, format: date-time }
+        latest_restore_at: { type: string, format: date-time }
+    BackupHealth:
+      type: object
+      additionalProperties: false
+      description: >-
+        COMPLETED backup capture is not equivalent to VERIFIED health. VERIFIED
+        requires a restore ID, verification timestamp, RESTORE_DRILL evidence,
+        and FUNCTIONAL_TEST evidence. DEGRADED also represents a real restore
+        drill, but one whose verification found a problem.
+      required: [state, evidence]
+      properties:
+        state: { type: string, enum: [UNKNOWN, UNVERIFIED, VERIFIED, DEGRADED, FAILED] }
+        last_verified_at: { type: string, format: date-time }
+        restore_id: { $ref: '#/components/schemas/Identifier' }
+        evidence:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/EvidenceReference' }
+      allOf:
+        - if:
+            properties: { state: { const: VERIFIED } }
+          then:
+            required: [last_verified_at, restore_id]
+            properties:
+              evidence:
+                minItems: 2
+                allOf:
+                  - contains:
+                      properties: { kind: { const: RESTORE_DRILL } }
+                      required: [kind]
+                  - contains:
+                      properties: { kind: { const: FUNCTIONAL_TEST } }
+                      required: [kind]
+        - if:
+            properties: { state: { const: DEGRADED } }
+          then:
+            required: [last_verified_at, restore_id]
+            properties:
+              evidence:
+                minItems: 1
+                contains:
+                  properties: { kind: { const: RESTORE_DRILL } }
+                  required: [kind]
+    BackupMetadata:
+      allOf:
+        - { $ref: '#/components/schemas/DistributedObjectMetadata' }
+        - type: object
+          required:
+            - schema_version
+            - recovery_point_id
+            - target
+            - mode
+            - state
+            - provider
+            - requested_at
+            - health
+          properties:
+            schema_version: { type: string, const: recovery.backup/v1 }
+            recovery_point_id: { $ref: '#/components/schemas/Identifier' }
+            target: { $ref: '#/components/schemas/ObjectReference' }
+            mode: { type: string, enum: [FULL, INCREMENTAL, DIFFERENTIAL, SNAPSHOT, BASE_WAL, OBJECT_VERSION] }
+            state: { type: string, enum: [PLANNED, RUNNING, COMPLETED, FAILED, EXPIRED, DELETED] }
+            parent_backup_id: { $ref: '#/components/schemas/Identifier' }
+            provider:
+              allOf:
+                - { $ref: '#/components/schemas/ProviderMetadata' }
+                - required: [repository_id]
+                  properties:
+                    capabilities:
+                      contains: { const: BACKUP }
+            artifact: { $ref: '#/components/schemas/BackupArtifact' }
+            pitr: { $ref: '#/components/schemas/PITRWindow' }
+            requested_at: { type: string, format: date-time }
+            started_at: { type: string, format: date-time }
+            data_captured_at: { type: string, format: date-time }
+            completed_at: { type: string, format: date-time }
+            health: { $ref: '#/components/schemas/BackupHealth' }
+            failure: { $ref: '#/components/schemas/FailureMetadata' }
+        - if:
+            properties: { mode: { enum: [INCREMENTAL, DIFFERENTIAL] } }
+          then:
+            required: [parent_backup_id]
+        - if:
+            properties: { mode: { const: BASE_WAL } }
+          then:
+            required: [pitr]
+        - if:
+            properties: { state: { const: COMPLETED } }
+          then:
+            required: [artifact, started_at, data_captured_at, completed_at]
+        - if:
+            properties: { state: { const: FAILED } }
+          then:
+            required: [completed_at, failure]
+      unevaluatedProperties: false
+      description: >-
+        Metadata observation only. Mode/state/provider/artifact/PITR/timestamp and
+        health combinations are enforced by ValidateBackupMetadata.
+    FencingMetadata:
+      type: object
+      additionalProperties: false
+      description: >-
+        CONFIRMED requires FENCING-capable provider metadata, a provider operation,
+        epoch, timestamp, and FENCING_CONFIRMATION evidence. It contains no fence token.
+      required: [state, target_ids, epoch, evidence]
+      properties:
+        state: { type: string, enum: [NOT_REQUIRED, REQUIRED, CONFIRMED, FAILED] }
+        target_ids:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Identifier' }
+        epoch: { type: integer, minimum: 0 }
+        provider:
+          allOf:
+            - { $ref: '#/components/schemas/ProviderMetadata' }
+            - properties:
+                capabilities:
+                  contains: { const: FENCING }
+        confirmed_at: { type: string, format: date-time }
+        evidence:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/EvidenceReference' }
+        failure: { $ref: '#/components/schemas/FailureMetadata' }
+      allOf:
+        - if:
+            properties: { state: { const: NOT_REQUIRED } }
+          then:
+            properties:
+              target_ids: { maxItems: 0 }
+              epoch: { const: 0 }
+              evidence: { maxItems: 0 }
+            not:
+              anyOf:
+                - required: [provider]
+                - required: [confirmed_at]
+                - required: [failure]
+        - if:
+            properties: { state: { const: REQUIRED } }
+          then:
+            required: [provider]
+            properties:
+              target_ids: { minItems: 1 }
+              epoch: { minimum: 1 }
+        - if:
+            properties: { state: { const: CONFIRMED } }
+          then:
+            required: [provider, confirmed_at]
+            properties:
+              target_ids: { minItems: 1 }
+              epoch: { minimum: 1 }
+              evidence: { minItems: 1 }
+        - if:
+            properties: { state: { const: FAILED } }
+          then:
+            required: [provider, failure]
+            properties:
+              target_ids: { minItems: 1 }
+              epoch: { minimum: 1 }
+    RestoreVerification:
+      type: object
+      additionalProperties: false
+      description: Evidence timestamps must not follow verified_at; verification cannot precede restore execution.
+      required: [outcome, evidence]
+      properties:
+        outcome: { type: string, enum: [PENDING, PASSED, FAILED] }
+        verified_at: { type: string, format: date-time }
+        evidence:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/EvidenceReference' }
+      allOf:
+        - if:
+            properties: { outcome: { enum: [PASSED, FAILED] } }
+          then:
+            required: [verified_at]
+            properties: { evidence: { minItems: 1 } }
+    RestoreMetadata:
+      allOf:
+        - { $ref: '#/components/schemas/DistributedObjectMetadata' }
+        - type: object
+          required:
+            - schema_version
+            - recovery_point_id
+            - backup_ids
+            - mode
+            - state
+            - target
+            - requested_objects
+            - provider
+            - fencing
+            - requested_at
+            - verification
+          properties:
+            schema_version: { type: string, const: recovery.restore/v1 }
+            recovery_point_id: { $ref: '#/components/schemas/Identifier' }
+            backup_ids:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/Identifier' }
+            mode: { type: string, enum: [IN_PLACE, ALTERNATE_TARGET, ISOLATED_DRILL, OBJECT_LEVEL, PITR] }
+            state: { type: string, enum: [PLANNED, RUNNING, VERIFYING, SUCCEEDED, FAILED, CANCELLED] }
+            target: { $ref: '#/components/schemas/ObjectReference' }
+            requested_objects:
+              type: array
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/ObjectReference' }
+            provider:
+              allOf:
+                - { $ref: '#/components/schemas/ProviderMetadata' }
+                - required: [repository_id]
+                  properties:
+                    capabilities:
+                      contains: { const: RESTORE }
+            fencing: { $ref: '#/components/schemas/FencingMetadata' }
+            requested_at: { type: string, format: date-time }
+            started_at: { type: string, format: date-time }
+            completed_at: { type: string, format: date-time }
+            pitr_target_at: { type: string, format: date-time }
+            verification: { $ref: '#/components/schemas/RestoreVerification' }
+            failure: { $ref: '#/components/schemas/FailureMetadata' }
+        - if:
+            properties: { mode: { const: OBJECT_LEVEL } }
+          then:
+            properties: { requested_objects: { minItems: 1 } }
+        - if:
+            properties: { mode: { const: PITR } }
+          then:
+            required: [pitr_target_at]
+        - if:
+            properties: { state: { const: SUCCEEDED } }
+          then:
+            required: [started_at, completed_at]
+            properties:
+              verification:
+                properties: { outcome: { const: PASSED } }
+        - if:
+            properties: { state: { const: FAILED } }
+          then:
+            required: [completed_at, failure]
+      unevaluatedProperties: false
+      description: >-
+        Descriptive restore state only. Stateful IN_PLACE/PITR execution cannot
+        progress without CONFIRMED fencing. SUCCEEDED requires passed verification.
+    RecoveryObjectiveEvidence:
+      allOf:
+        - { $ref: '#/components/schemas/DistributedObjectMetadata' }
+        - type: object
+          required:
+            - schema_version
+            - policy_id
+            - target
+            - recovery_point_id
+            - restore_id
+            - target_rpo_seconds
+            - target_rto_seconds
+            - measured_at
+            - result
+            - evidence
+          properties:
+            schema_version: { type: string, const: recovery.objective-evidence/v1 }
+            policy_id: { $ref: '#/components/schemas/Identifier' }
+            target: { $ref: '#/components/schemas/ObjectReference' }
+            recovery_point_id: { $ref: '#/components/schemas/Identifier' }
+            restore_id: { $ref: '#/components/schemas/Identifier' }
+            target_rpo_seconds: { type: integer, minimum: 1 }
+            target_rto_seconds: { type: integer, minimum: 1 }
+            observed_rpo_seconds: { type: integer, minimum: 0 }
+            observed_rto_seconds: { type: integer, minimum: 0 }
+            measured_at: { type: string, format: date-time }
+            result: { type: string, enum: [PASSED, FAILED] }
+            evidence:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/EvidenceReference' }
+            failure_reason: { type: string, minLength: 1, maxLength: 512 }
+        - if:
+            properties: { result: { const: PASSED } }
+          then:
+            required: [observed_rpo_seconds, observed_rto_seconds]
+      unevaluatedProperties: false
+      description: >-
+        Observed RPO/RTO values from an actual restore or isolated restore drill.
+        PASSED requires values within policy targets plus RESTORE_DRILL and
+        FUNCTIONAL_TEST evidence.
+    LegacyV03Record:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind: { type: string, enum: [JOB, RESOURCE, CONFIG_REVISION] }
+        id: { $ref: '#/components/schemas/Identifier' }
+    QuarantinedLegacyRecord:
+      type: object
+      additionalProperties: false
+      required: [kind, id, disposition, reason]
+      properties:
+        kind: { type: string, enum: [JOB, RESOURCE, CONFIG_REVISION] }
+        id: { $ref: '#/components/schemas/Identifier' }
+        disposition: { type: string, const: REQUIRES_REVIEW }
+        reason: { type: string, minLength: 1 }
+    V03MigrationResult:
+      type: object
+      additionalProperties: false
+      description: >-
+        Conservative deterministic compatibility report. Control Center 0.3.x
+        had no typed recovery evidence; generic records are quarantined and are
+        never promoted automatically.
+      required:
+        - schema_version
+        - source_product_version
+        - recovery_points
+        - backups
+        - restores
+        - objective_evidence
+        - quarantined
+        - warnings
+      properties:
+        schema_version: { type: string, const: recovery.v03-compatibility/v1 }
+        source_product_version: { type: string, const: 0.3.x }
+        recovery_points: { type: array, maxItems: 0, items: { $ref: '#/components/schemas/RecoveryPoint' } }
+        backups: { type: array, maxItems: 0, items: { $ref: '#/components/schemas/BackupMetadata' } }
+        restores: { type: array, maxItems: 0, items: { $ref: '#/components/schemas/RestoreMetadata' } }
+        objective_evidence: { type: array, maxItems: 0, items: { $ref: '#/components/schemas/RecoveryObjectiveEvidence' } }
+        quarantined: { type: array, items: { $ref: '#/components/schemas/QuarantinedLegacyRecord' } }
+        warnings: { type: array, minItems: 2, uniqueItems: true, items: { type: string, minLength: 1 } }

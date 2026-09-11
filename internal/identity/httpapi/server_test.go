@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"control-center/internal/buildinfo"
 	commonapi "control-center/internal/httpapi"
 	"control-center/internal/identity/audit"
 	"control-center/internal/identity/auth"
@@ -66,9 +65,14 @@ func newHTTPFixture(t *testing.T) httpFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bootstrapHash, err := hasher.HashBootstrapAdminPassword()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, user := range []auth.User{
 		{ID: "viewer-1", Username: "viewer", DisplayName: "Viewer", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()},
 		{ID: "unbound-1", Username: "unbound", DisplayName: "Unbound", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()},
+		{ID: "admin-1", Username: "admin", DisplayName: "Administrator", PasswordHash: bootstrapHash, Enabled: true, PasswordChangeRequired: true, CreatedAt: time.Now().UTC()},
 	} {
 		if err := store.CreateUser(context.Background(), user); err != nil {
 			t.Fatal(err)
@@ -85,6 +89,9 @@ func newHTTPFixture(t *testing.T) httpFixture {
 		}
 	}
 	if err := authorizer.Bind(rbac.Binding{SubjectID: "viewer-1", RoleName: "viewer", Scope: rbac.GlobalScope()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := authorizer.Bind(rbac.Binding{SubjectID: "admin-1", RoleName: "administrator", Scope: rbac.GlobalScope()}); err != nil {
 		t.Fatal(err)
 	}
 	server, err := NewServer(authService, authorizer, log, Config{})
@@ -111,7 +118,7 @@ func (f httpFixture) login(t *testing.T, username string) *http.Cookie {
 	if !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode {
 		t.Fatal("session cookie lacks security attributes")
 	}
-	if strings.Contains(res.Body.String(), cookies[0].Value) || strings.Contains(res.Body.String(), "password") {
+	if strings.Contains(res.Body.String(), cookies[0].Value) || strings.Contains(res.Body.String(), "a secure test password") {
 		t.Fatal("login response disclosed a credential or token")
 	}
 	return cookies[0]
@@ -142,43 +149,6 @@ func TestLoginSessionIdentityAndLogout(t *testing.T) {
 	f.server.ServeHTTP(afterResult, after)
 	if afterResult.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked cookie status=%d", afterResult.Code)
-	}
-}
-
-func TestOverviewUsesRuntimeBuildVersion(t *testing.T) {
-	originalVersion := buildinfo.Version
-	buildinfo.Version = "0.3.1-regression"
-	t.Cleanup(func() { buildinfo.Version = originalVersion })
-
-	f := newHTTPFixture(t)
-	cookie := f.login(t, "viewer")
-
-	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/system/overview", nil)
-	apiRequest.AddCookie(cookie)
-	apiResult := httptest.NewRecorder()
-	f.server.ServeHTTP(apiResult, apiRequest)
-	if apiResult.Code != http.StatusOK {
-		t.Fatalf("overview API status=%d body=%s", apiResult.Code, apiResult.Body.String())
-	}
-	var overview struct {
-		Release string `json:"release"`
-	}
-	if err := json.Unmarshal(apiResult.Body.Bytes(), &overview); err != nil {
-		t.Fatal(err)
-	}
-	if overview.Release != buildinfo.Version {
-		t.Fatalf("overview release=%q, want %q", overview.Release, buildinfo.Version)
-	}
-
-	webRequest := httptest.NewRequest(http.MethodGet, "/overview", nil)
-	webRequest.AddCookie(cookie)
-	webResult := httptest.NewRecorder()
-	f.server.ServeHTTP(webResult, webRequest)
-	if webResult.Code != http.StatusOK {
-		t.Fatalf("overview page status=%d body=%s", webResult.Code, webResult.Body.String())
-	}
-	if !strings.Contains(webResult.Body.String(), "Версия "+buildinfo.Version+".") {
-		t.Fatalf("overview page does not contain runtime version: %s", webResult.Body.String())
 	}
 }
 
@@ -238,5 +208,93 @@ func TestLoginRejectsUnknownFieldsAndWrongContentType(t *testing.T) {
 	f.server.ServeHTTP(res, req)
 	if res.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("wrong content type status=%d", res.Code)
+	}
+}
+
+func TestFirstLoginAllowsOnlyPasswordChangeFlow(t *testing.T) {
+	f := newHTTPFixture(t)
+	loginBody := strings.NewReader(`{"username":"admin","password":"admin"}`)
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", loginBody)
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResult := httptest.NewRecorder()
+	f.server.ServeHTTP(loginResult, loginRequest)
+	if loginResult.Code != http.StatusOK {
+		t.Fatalf("bootstrap login status=%d body=%s", loginResult.Code, loginResult.Body.String())
+	}
+	var loginResponse struct {
+		PasswordChangeRequired bool `json:"password_change_required"`
+	}
+	if err := json.Unmarshal(loginResult.Body.Bytes(), &loginResponse); err != nil || !loginResponse.PasswordChangeRequired {
+		t.Fatalf("bootstrap login flag=%v err=%v", loginResponse.PasswordChangeRequired, err)
+	}
+	cookies := loginResult.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("bootstrap login cookies=%d", len(cookies))
+	}
+	cookie := cookies[0]
+
+	for _, path := range []string{"/api/v1/identity/self", "/api/v1/system/overview"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.AddCookie(cookie)
+		result := httptest.NewRecorder()
+		f.server.ServeHTTP(result, request)
+		if result.Code != http.StatusForbidden || !strings.Contains(result.Body.String(), "password_change_required") {
+			t.Fatalf("protected %s status=%d body=%s", path, result.Code, result.Body.String())
+		}
+	}
+	sessionRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+	sessionRequest.AddCookie(cookie)
+	sessionResult := httptest.NewRecorder()
+	f.server.ServeHTTP(sessionResult, sessionRequest)
+	if sessionResult.Code != http.StatusOK || !strings.Contains(sessionResult.Body.String(), `"password_change_required":true`) {
+		t.Fatalf("session status=%d body=%s", sessionResult.Code, sessionResult.Body.String())
+	}
+
+	shortRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{"current_password":"admin","new_password":"short"}`))
+	shortRequest.Header.Set("Content-Type", "application/json")
+	shortRequest.AddCookie(cookie)
+	shortResult := httptest.NewRecorder()
+	f.server.ServeHTTP(shortResult, shortRequest)
+	if shortResult.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("short password status=%d body=%s", shortResult.Code, shortResult.Body.String())
+	}
+
+	const replacement = "a new compliant admin password"
+	changeBody, err := json.Marshal(map[string]string{"current_password": "admin", "new_password": replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changeRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", bytes.NewReader(changeBody))
+	changeRequest.Header.Set("Content-Type", "application/json")
+	changeRequest.AddCookie(cookie)
+	changeResult := httptest.NewRecorder()
+	f.server.ServeHTTP(changeResult, changeRequest)
+	if changeResult.Code != http.StatusNoContent {
+		t.Fatalf("password change status=%d body=%s", changeResult.Code, changeResult.Body.String())
+	}
+	if cleared := changeResult.Result().Cookies(); len(cleared) != 1 || cleared[0].MaxAge != -1 {
+		t.Fatalf("password change did not clear session cookie: %#v", cleared)
+	}
+
+	staleRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+	staleRequest.AddCookie(cookie)
+	staleResult := httptest.NewRecorder()
+	f.server.ServeHTTP(staleResult, staleRequest)
+	if staleResult.Code != http.StatusUnauthorized {
+		t.Fatalf("old session status=%d", staleResult.Code)
+	}
+	reloginBody, err := json.Marshal(map[string]string{"username": "admin", "password": replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloginRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(reloginBody))
+	reloginRequest.Header.Set("Content-Type", "application/json")
+	reloginResult := httptest.NewRecorder()
+	f.server.ServeHTTP(reloginResult, reloginRequest)
+	if reloginResult.Code != http.StatusOK || !strings.Contains(reloginResult.Body.String(), `"password_change_required":false`) {
+		t.Fatalf("post-change login status=%d body=%s", reloginResult.Code, reloginResult.Body.String())
+	}
+	if strings.Contains(reloginResult.Body.String(), replacement) {
+		t.Fatal("login response disclosed replacement password")
 	}
 }

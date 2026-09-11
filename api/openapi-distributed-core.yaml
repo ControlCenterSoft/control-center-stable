@@ -1,0 +1,435 @@
+openapi: 3.1.0
+info:
+  title: Control Center Distributed Core Contracts
+  version: 0.4.0
+  description: >-
+    Persisted topology, role assignment, Network Zone/Interface inventory,
+    distributed object versioning and separate Desired/Actual State. HTTP
+    endpoints are authenticated and read-only. Mutations use the high-risk
+    core.object.apply action through the existing /api/v1/changes and Job
+    approval/execution boundary; there is no direct mutation route and no
+    routing, forwarding, NAT, firewall, or host mutation in this API.
+  x-control-center-mutation-action: core.object.apply
+security:
+  - sessionCookie: []
+paths:
+  /api/v1/core/objects:
+    get:
+      operationId: listDistributedCoreObjects
+      summary: List versioned distributed core objects
+      parameters:
+        - name: object_type
+          in: query
+          schema: { $ref: '#/components/schemas/ObjectType' }
+        - name: scope_id
+          in: query
+          schema: { $ref: '#/components/schemas/Identifier' }
+        - name: owner_scope
+          in: query
+          schema: { $ref: '#/components/schemas/Identifier' }
+      responses:
+        '200':
+          description: Deterministically ordered objects.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoredObjectList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/core/objects/{objectId}:
+    get:
+      operationId: getDistributedCoreObject
+      summary: Get one versioned distributed core object
+      parameters:
+        - name: objectId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Identifier' }
+      responses:
+        '200':
+          description: Stored object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoredObject' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/core/topology:
+    get:
+      operationId: getDistributedCoreTopology
+      summary: Get one coherent scope, site, management-zone and network snapshot
+      responses:
+        '200':
+          description: Validated topology snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopologySnapshot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  responses:
+    BadRequest:
+      description: Malformed path or filter.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Authentication is required.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: The principal lacks core.objects.read.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: The object was not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ServiceUnavailable:
+      description: The distributed core repository is not initialized.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    InternalError:
+      description: The object store could not provide a validated response.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,253}[A-Za-z0-9])?$'
+    DistributedObjectMetadata:
+      type: object
+      required: [object_id, scope_id, owner_scope, generation, resource_version, created_at, updated_at]
+      properties:
+        object_id: { $ref: '#/components/schemas/Identifier' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        owner_scope: { $ref: '#/components/schemas/Identifier' }
+        generation:
+          type: integer
+          format: uint64
+          minimum: 1
+          description: Desired semantic generation; advances only when desired content changes.
+        resource_version:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Opaque persistence/synchronization token; never parse, sort or increment it client-side.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ObjectPrecondition:
+      type: object
+      additionalProperties: false
+      required: [object_id, resource_version]
+      properties:
+        object_id: { $ref: '#/components/schemas/Identifier' }
+        resource_version: { type: string, minLength: 1, maxLength: 255 }
+        generation: { type: integer, format: uint64, minimum: 1 }
+      description: >-
+        Compare-and-swap guard. A storage adapter must verify it atomically with
+        an update or deletion. A malformed guard is 400, a missing guard is 428,
+        and a stale guard is 412.
+    ObjectType:
+      type: string
+      enum: [scope, site, management-zone, network-zone, network-interface, role-assignment, desired-state, actual-state]
+    MutationOperation:
+      type: string
+      enum: [create, replace]
+    MutationRequest:
+      type: object
+      additionalProperties: false
+      required: [operation, object_type, object_id, scope_id, owner_scope, document]
+      properties:
+        operation: { $ref: '#/components/schemas/MutationOperation' }
+        object_type: { $ref: '#/components/schemas/ObjectType' }
+        object_id: { $ref: '#/components/schemas/Identifier' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        owner_scope: { $ref: '#/components/schemas/Identifier' }
+        document:
+          type: object
+          description: Metadata-free document matching object_type.
+        precondition: { $ref: '#/components/schemas/ObjectPrecondition' }
+      allOf:
+        - if:
+            properties:
+              operation: { const: replace }
+            required: [operation]
+          then:
+            required: [precondition]
+        - if:
+            properties:
+              operation: { const: create }
+            required: [operation]
+          then:
+            not:
+              required: [precondition]
+      description: >-
+        Input of core.object.apply. The Job-derived downstream idempotency key
+        is supplied by the worker, never by this payload. Missing replace
+        preconditions, malformed guards and stale guards remain distinct typed
+        failures in the durable Job result; no direct mutation HTTP route exists.
+    StoredObject:
+      type: object
+      additionalProperties: false
+      required:
+        - object_id
+        - scope_id
+        - owner_scope
+        - generation
+        - resource_version
+        - created_at
+        - updated_at
+        - object_type
+        - document
+      properties:
+        object_id: { $ref: '#/components/schemas/Identifier' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        owner_scope: { $ref: '#/components/schemas/Identifier' }
+        generation: { type: integer, format: uint64, minimum: 1 }
+        resource_version: { type: string, minLength: 1, maxLength: 255 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        object_type: { $ref: '#/components/schemas/ObjectType' }
+        document: { type: object }
+    StoredObjectList:
+      type: object
+      additionalProperties: false
+      required: [items, count]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/StoredObject' }
+        count: { type: integer, minimum: 0 }
+    TopologySnapshot:
+      type: object
+      additionalProperties: false
+      required: [scopes, sites, management_zones, network_zones, network_interfaces]
+      properties:
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/StoredObject' }
+        sites:
+          type: array
+          items: { $ref: '#/components/schemas/StoredObject' }
+        management_zones:
+          type: array
+          items: { $ref: '#/components/schemas/StoredObject' }
+        network_zones:
+          type: array
+          items: { $ref: '#/components/schemas/StoredObject' }
+        network_interfaces:
+          type: array
+          items: { $ref: '#/components/schemas/StoredObject' }
+    ScopeKind:
+      type: string
+      enum: [global, management, site, resource]
+    DelegatedAuthority:
+      type: string
+      enum: [rbac, policy, configuration, desired-state, applications]
+    Scope:
+      type: object
+      additionalProperties: false
+      required: [id, kind, name]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        kind: { $ref: '#/components/schemas/ScopeKind' }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        parent_id: { $ref: '#/components/schemas/Identifier' }
+        delegated_authorities:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/DelegatedAuthority' }
+      description: >-
+        A global scope has no parent; every other scope has one. Delegations are
+        explicit grants from the direct parent and are not implicitly inherited.
+    Site:
+      type: object
+      additionalProperties: false
+      required: [id, name, scope_id]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+    ManagementZone:
+      type: object
+      additionalProperties: false
+      required: [id, name, scope_id]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        site_id: { $ref: '#/components/schemas/Identifier' }
+      description: Logical policy/RBAC boundary; it does not enable network forwarding or NAT.
+    NetworkZoneKind:
+      type: string
+      enum: [unassigned, wan, lan, management, dmz, cluster, storage, backup, trusted]
+      description: Classification only; it does not enable any network behavior.
+    NetworkZone:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, scope_id, site_id]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        kind: { $ref: '#/components/schemas/NetworkZoneKind' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        site_id: { $ref: '#/components/schemas/Identifier' }
+      description: >-
+        Site-scoped network classification, separate from ManagementZone.
+        scope_id must equal the distributed envelope scope and must be inside
+        site_id. The contract cannot express routing, forwarding, NAT, or
+        firewall activation.
+    NetworkInterfaceKind:
+      type: string
+      enum: [physical, bond, bridge, vlan, virtual]
+    NetworkLinkState:
+      type: string
+      enum: [up, down, unknown]
+      description: Observed inventory state; never a desired host-operation instruction.
+    NetworkInterface:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - node_id
+        - name
+        - kind
+        - scope_id
+        - site_id
+        - network_zone_id
+        - operational_state
+        - mtu
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        node_id: { $ref: '#/components/schemas/Identifier' }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        kind: { $ref: '#/components/schemas/NetworkInterfaceKind' }
+        scope_id: { $ref: '#/components/schemas/Identifier' }
+        site_id: { $ref: '#/components/schemas/Identifier' }
+        network_zone_id: { $ref: '#/components/schemas/Identifier' }
+        mac_address:
+          type: string
+          description: Canonical 48-bit colon-separated address; required for physical interfaces.
+          pattern: '^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$'
+        operational_state: { $ref: '#/components/schemas/NetworkLinkState' }
+        addresses:
+          type: array
+          maxItems: 64
+          uniqueItems: true
+          items:
+            type: string
+            description: Canonical IPv4 or IPv6 CIDR prefix.
+        mtu: { type: integer, format: uint32, minimum: 68, maximum: 65535 }
+        link_speed_mbps: { type: integer, format: uint64, minimum: 0, maximum: 10000000 }
+        parent_interface_id: { $ref: '#/components/schemas/Identifier' }
+        vlan_id: { type: integer, minimum: 1, maximum: 4094 }
+      description: >-
+        Persistent inventory/topology only. node_id must have a RoleAssignment
+        at site_id; the site, scope, Network Zone, and optional parent must form
+        one coherent snapshot. VLAN requires a same-node/site/scope parent and
+        vlan_id. Unknown route/gateway/forwarding/NAT/firewall fields are
+        rejected and this contract performs no host mutation.
+    NodeRole:
+      type: string
+      enum:
+        - management-node
+        - global-controller
+        - site-controller
+        - controller-cluster-member
+        - worker-node
+        - managed-node
+        - agent
+        - data-node
+        - consensus-node
+        - repository-node
+        - telemetry-node
+        - backup-repository-node
+        - edge-gateway
+      description: Cluster coordinator is elected runtime state and is intentionally not assignable.
+    RoleAssignment:
+      allOf:
+        - $ref: '#/components/schemas/DistributedObjectMetadata'
+        - type: object
+          required: [target_node_id, service_identity_id, role]
+          properties:
+            target_node_id: { $ref: '#/components/schemas/Identifier' }
+            service_identity_id: { $ref: '#/components/schemas/Identifier' }
+            role: { $ref: '#/components/schemas/NodeRole' }
+            site_id: { $ref: '#/components/schemas/Identifier' }
+            management_zone_id: { $ref: '#/components/schemas/Identifier' }
+      unevaluatedProperties: false
+      description: >-
+        Binds a stable logical role/service identity to a physical node. Moving
+        it changes target_node_id and desired generation, not its object identity.
+    DesiredState:
+      allOf:
+        - $ref: '#/components/schemas/DistributedObjectMetadata'
+        - type: object
+          required: [kind, target_object_id, spec]
+          properties:
+            kind: { $ref: '#/components/schemas/Identifier' }
+            target_object_id: { $ref: '#/components/schemas/Identifier' }
+            spec: { type: object, additionalProperties: true }
+      unevaluatedProperties: false
+      description: Top-down intent; owner_scope is scope_id or an ancestor of it.
+    ActualStateStatus:
+      type: string
+      enum: [converged, progressing, drifted, failed, unknown]
+    ActualState:
+      allOf:
+        - $ref: '#/components/schemas/DistributedObjectMetadata'
+        - type: object
+          required:
+            - kind
+            - target_object_id
+            - desired_object_id
+            - observed_generation
+            - source_node_id
+            - observed_at
+            - status
+            - state
+          properties:
+            kind: { $ref: '#/components/schemas/Identifier' }
+            target_object_id: { $ref: '#/components/schemas/Identifier' }
+            desired_object_id: { $ref: '#/components/schemas/Identifier' }
+            observed_generation: { type: integer, format: uint64, minimum: 0 }
+            source_node_id: { $ref: '#/components/schemas/Identifier' }
+            observed_at: { type: string, format: date-time }
+            status: { $ref: '#/components/schemas/ActualStateStatus' }
+            state: { type: object, additionalProperties: true }
+      unevaluatedProperties: false
+      description: >-
+        Bottom-up observation. owner_scope contains scope_id; synchronization
+        transports the observation to ancestors without rewriting ownership.
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, correlation_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            correlation_id: { type: string }

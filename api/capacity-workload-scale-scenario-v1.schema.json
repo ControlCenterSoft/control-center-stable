@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.local/api/capacity-workload-scale-scenario-v1.schema.json",
+  "title": "Capacity Workload Scale Scenario v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scenario_id", "curve_id", "efficiency_report_id", "request", "status", "reason", "recommended_action", "advisory_only", "production_mutation"],
+  "properties": {
+    "schema_version": {"const": "capacity.workload-scale-scenario/v1"},
+    "scenario_id": {"type": "string", "pattern": "^wss-[a-f0-9]{24}$"},
+    "curve_id": {"type": "string", "pattern": "^wlc-[a-f0-9]{24}$"},
+    "efficiency_report_id": {"type": "string", "pattern": "^wce-[a-f0-9]{24}$"},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_resource_factor", "required_workload", "minimum_headroom_percent"],
+      "properties": {
+        "target_resource_factor": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000},
+        "required_workload": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_headroom_percent": {"type": "number", "minimum": 0, "maximum": 1000}
+      }
+    },
+    "estimated_safe_workload": {"type": "number", "exclusiveMinimum": 0},
+    "headroom_workload": {"type": "number"},
+    "headroom_percent": {"type": "number"},
+    "status": {"enum": ["feasible", "insufficient-capacity", "diminishing-returns", "collect-evidence", "blocked"]},
+    "reason": {"type": "string", "minLength": 1},
+    "recommended_action": {"enum": ["none", "collect-evidence", "inspect-bottleneck-before-scaling", "increase-evidence-backed-capacity-or-reduce-demand"]},
+    "advisory_only": {"const": true},
+    "production_mutation": {"const": false}
+  }
+}

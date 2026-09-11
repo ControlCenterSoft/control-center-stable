@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"control-center/internal/corecontracts"
+	coreobjectsapi "control-center/internal/corecontracts/httpapi"
 	coreapi "control-center/internal/httpapi"
 	"control-center/internal/identity/audit"
 	"control-center/internal/identity/auth"
@@ -26,6 +28,10 @@ type resourceAuthFixture struct {
 }
 
 func newResourceAuthFixture(t *testing.T) resourceAuthFixture {
+	return newResourceAuthFixtureWithProductOptions(t)
+}
+
+func newResourceAuthFixtureWithProductOptions(t *testing.T, productOptions ...productHandlerOption) resourceAuthFixture {
 	t.Helper()
 
 	store := auth.NewMemoryStore()
@@ -37,6 +43,8 @@ func newResourceAuthFixture(t *testing.T) resourceAuthFixture {
 	}
 	for _, user := range []auth.User{
 		{ID: "admin-1", Username: "admin", DisplayName: "Administrator", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
+		{ID: "operator-1", Username: "operator", DisplayName: "Operator", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
+		{ID: "auditor-1", Username: "auditor", DisplayName: "Auditor", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 		{ID: "viewer-1", Username: "viewer", DisplayName: "Viewer", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 		{ID: "unbound-1", Username: "unbound", DisplayName: "Unbound", PasswordHash: passwordHash, Enabled: true, CreatedAt: time.Now().UTC()},
 	} {
@@ -57,6 +65,8 @@ func newResourceAuthFixture(t *testing.T) resourceAuthFixture {
 	}
 	for _, binding := range []rbac.Binding{
 		{SubjectID: "admin-1", RoleName: "administrator", Scope: rbac.GlobalScope()},
+		{SubjectID: "operator-1", RoleName: "operator", Scope: rbac.GlobalScope()},
+		{SubjectID: "auditor-1", RoleName: "auditor", Scope: rbac.GlobalScope()},
 		{SubjectID: "viewer-1", RoleName: "viewer", Scope: rbac.GlobalScope()},
 	} {
 		if err := authorizer.Bind(binding); err != nil {
@@ -86,8 +96,42 @@ func newResourceAuthFixture(t *testing.T) resourceAuthFixture {
 		registry,
 		coreapi.WithResourceGuard(resourceGuard),
 	)
+	product := newProductHandler(identity, productOptions...)
+	coreObjects, err := corecontracts.NewMemoryObjectRepository([]corecontracts.StoredObject{corecontracts.LegacyGlobalScopeObject(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coreObjectGuard := func(next http.Handler) http.Handler {
+		return identity.Authenticate(identity.Require(rbac.PermissionCoreObjectsRead, rbac.GlobalScope())(next))
+	}
+	distributedCore := coreobjectsapi.New(slog.New(slog.NewTextHandler(io.Discard, nil)), coreObjects, coreObjectGuard)
 
-	return resourceAuthFixture{handler: splitHandler{core: core.Handler(), identity: identity}}
+	return resourceAuthFixture{handler: splitHandler{core: core.Handler(), identity: identity, distributedCore: distributedCore.Handler(), product: product}}
+}
+
+func TestDistributedCoreAPIRequiresAuthenticationAndPermission(t *testing.T) {
+	fixture := newResourceAuthFixture(t)
+	tests := []struct {
+		username string
+		status   int
+	}{
+		{"", http.StatusUnauthorized},
+		{"unbound", http.StatusForbidden},
+		{"viewer", http.StatusOK},
+		{"operator", http.StatusOK},
+		{"admin", http.StatusOK},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/core/objects", nil)
+		if test.username != "" {
+			request.AddCookie(fixture.login(t, test.username))
+		}
+		result := httptest.NewRecorder()
+		fixture.handler.ServeHTTP(result, request)
+		if result.Code != test.status {
+			t.Errorf("user %q status=%d want=%d body=%s", test.username, result.Code, test.status, result.Body.String())
+		}
+	}
 }
 
 func (f resourceAuthFixture) login(t *testing.T, username string) *http.Cookie {

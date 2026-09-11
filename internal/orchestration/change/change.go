@@ -39,8 +39,6 @@ type Snapshot struct {
 	UpdatedAt  time.Time         `json:"updatedAt"`
 }
 
-// Machine owns all in-process state transitions. Persistent implementations
-// should use Snapshot.Version as an optimistic concurrency precondition.
 type Machine struct {
 	mu       sync.RWMutex
 	snapshot Snapshot
@@ -63,10 +61,7 @@ func New(id, action, requester string, revision config.Revision, decision policy
 			state = StatePendingApproval
 		}
 	}
-	return &Machine{snapshot: Snapshot{
-		ID: id, Action: action, Requester: requester, RevisionID: revision.ID(),
-		Risk: decision.Risk, State: state, Decision: decision, Version: 1, UpdatedAt: now.UTC(),
-	}}, nil
+	return &Machine{snapshot: Snapshot{ID: id, Action: action, Requester: requester, RevisionID: revision.ID(), Risk: decision.Risk, State: state, Decision: decision, Version: 1, UpdatedAt: now.UTC()}}, nil
 }
 
 func (m *Machine) Snapshot() Snapshot {
@@ -76,7 +71,6 @@ func (m *Machine) Snapshot() Snapshot {
 	copy.Approvals = append([]policy.Approval(nil), m.snapshot.Approvals...)
 	return copy
 }
-
 func (m *Machine) Approve(approval policy.Approval, expectedVersion uint64, now time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -94,7 +88,6 @@ func (m *Machine) Approve(approval policy.Approval, expectedVersion uint64, now 
 	m.snapshot.UpdatedAt = now.UTC()
 	return nil
 }
-
 func (m *Machine) Transition(to State, expectedVersion uint64, now time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -109,7 +102,6 @@ func (m *Machine) Transition(to State, expectedVersion uint64, now time.Time) er
 	m.snapshot.UpdatedAt = now.UTC()
 	return nil
 }
-
 func allowed(from, to State) bool {
 	switch from {
 	case StatePendingApproval:

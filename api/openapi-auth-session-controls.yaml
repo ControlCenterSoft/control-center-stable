@@ -1,0 +1,252 @@
+openapi: 3.1.0
+info:
+  title: Control Center Session Security API fragment
+  version: 0.4.0
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/v1/auth/session-policy:
+    get:
+      operationId: getEffectiveSessionSecurityPolicy
+      summary: Read the effective local session security policy
+      description: >-
+        Returns the bounded session policy currently enforced by this Control
+        Center instance. The operation is available only to an authenticated
+        local identity after any mandatory first-login password change. Reading
+        the policy is security-audited; if required audit evidence cannot be
+        persisted the operation fails closed without returning the policy.
+      responses:
+        '200':
+          description: Effective session security policy.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [policy]
+                properties:
+                  policy:
+                    $ref: '#/components/schemas/SessionSecurityPolicyView'
+        '401':
+          description: Authentication is missing, expired, revoked, or idle-expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The mandatory first-login password change has not been completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Required security audit evidence is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/sessions:
+    get:
+      operationId: listOwnSessions
+      summary: List active sessions for the authenticated local identity
+      description: >-
+        Returns only active sessions owned by the authenticated identity. The
+        caller's current session is marked explicitly. Sessions that exceeded
+        the configured inactivity timeout are omitted even when their absolute
+        expiry has not yet been reached. Last activity and the effective idle
+        deadline are returned for operator visibility. Session tokens and token
+        digests are never returned. The operation is available only after any
+        mandatory first-login password change has been completed.
+      responses:
+        '200':
+          description: Active own-session inventory.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionSecurityView'
+        '401':
+          description: Authentication is missing, expired, revoked, or idle-expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The mandatory first-login password change has not been completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Session inventory or its required security audit evidence is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/sessions/{sessionID}:
+    delete:
+      operationId: revokeOwnSession
+      summary: Revoke one active session owned by the authenticated local identity
+      description: >-
+        Revokes only the selected active session when it belongs to the
+        authenticated identity. A foreign, expired, idle-expired, revoked,
+        malformed, or unknown identifier is reported uniformly as not found.
+        Revoking the current browser session clears its session cookie.
+      parameters:
+        - name: sessionID
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 36
+      responses:
+        '204':
+          description: The selected own session was revoked.
+        '401':
+          description: Authentication is missing or no longer valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The mandatory first-login password change has not been completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: No matching active own session exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Session revocation or its required security audit evidence is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/sessions/revoke-all:
+    post:
+      operationId: revokeAllSessions
+      summary: Revoke every active session for the authenticated local identity
+      description: >-
+        Revokes all currently active sessions for the authenticated identity,
+        including the session used for this request. The operation is available
+        only after any mandatory first-login password change has been completed.
+        No session token or credential is returned or persisted in audit details.
+      responses:
+        '204':
+          description: All active sessions were revoked; the caller must authenticate again.
+        '401':
+          description: Authentication is missing or no longer valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The mandatory first-login password change has not been completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Session revocation or its required security audit evidence is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+  schemas:
+    SessionSecurityPolicyView:
+      type: object
+      additionalProperties: false
+      required:
+        - absolute_ttl_seconds
+        - idle_timeout_seconds
+        - activity_refreshes_idle_deadline
+        - activity_extends_absolute_expiry
+      properties:
+        absolute_ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 604800
+          description: Maximum absolute lifetime of a newly issued session.
+        idle_timeout_seconds:
+          type: integer
+          minimum: 60
+          maximum: 604800
+          description: Maximum inactivity interval; never greater than the absolute TTL.
+        activity_refreshes_idle_deadline:
+          type: boolean
+          const: true
+        activity_extends_absolute_expiry:
+          type: boolean
+          const: false
+    SessionSecurityView:
+      type: object
+      additionalProperties: false
+      required: [id, created_at, last_activity_at, idle_expires_at, expires_at, current]
+      properties:
+        id:
+          type: string
+          minLength: 32
+          maxLength: 36
+        created_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+          description: Last successfully authenticated use of the session.
+        idle_expires_at:
+          type: string
+          format: date-time
+          description: Effective inactivity deadline, capped by the absolute expiry.
+        expires_at:
+          type: string
+          format: date-time
+          description: Absolute session expiry; successful activity never extends this value.
+        source_ip:
+          type: string
+          maxLength: 64
+        user_agent:
+          type: string
+          maxLength: 512
+        current:
+          type: boolean
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, correlation_id]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            correlation_id:
+              type: string
+              minLength: 1
+              maxLength: 128

@@ -7,3 +7,7 @@
 *.test
 coverage.html
 coverage.out
+
+# Gemini CLI local state / temporary credentials
+.gemini/
+gha-creds-*.json

@@ -1,0 +1,336 @@
+openapi: 3.1.0
+info:
+  title: Control Center Capacity Contracts
+  version: 0.4.0
+  description: >-
+    Side-effect-free CapacityProfile, Constraint and Recommendation schemas.
+    This fragment declares no scheduler, placement, procurement or mutation
+    endpoint. Unknown and missing schema versions are rejected.
+paths: {}
+components:
+  schemas:
+    CapacityIdentifier:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,253}[A-Za-z0-9])?$'
+    CapacitySubjectKind:
+      type: string
+      enum: [node, role, service, market-module, site]
+    CapacityWorkloadUnit:
+      type: string
+      enum: [devices, concurrent-sessions, jobs-per-minute, requests-per-second, instances]
+    CapacitySubject:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind: { $ref: '#/components/schemas/CapacitySubjectKind' }
+        id: { $ref: '#/components/schemas/CapacityIdentifier' }
+        role:
+          $ref: './openapi-distributed-core.yaml#/components/schemas/NodeRole'
+      allOf:
+        - if:
+            properties:
+              kind: { const: role }
+            required: [kind]
+          then:
+            required: [role]
+          else:
+            not:
+              required: [role]
+      description: >-
+        role is required only when kind is role and is forbidden for every
+        other kind.
+    CapacityConfidenceLevel:
+      type: string
+      enum: [low, medium, high, certified]
+    CapacityConfidence:
+      type: object
+      additionalProperties: false
+      required: [level, score]
+      properties:
+        level: { $ref: '#/components/schemas/CapacityConfidenceLevel' }
+        score: { type: number, minimum: 0, maximum: 1 }
+      allOf:
+        - if:
+            properties:
+              level: { const: low }
+            required: [level]
+          then:
+            properties:
+              score: { minimum: 0, exclusiveMaximum: 0.5 }
+        - if:
+            properties:
+              level: { const: medium }
+            required: [level]
+          then:
+            properties:
+              score: { minimum: 0.5, exclusiveMaximum: 0.75 }
+        - if:
+            properties:
+              level: { const: high }
+            required: [level]
+          then:
+            properties:
+              score: { minimum: 0.75, exclusiveMaximum: 0.95 }
+        - if:
+            properties:
+              level: { const: certified }
+            required: [level]
+          then:
+            properties:
+              score: { minimum: 0.95, maximum: 1 }
+      description: >-
+        Bands are low [0,.5), medium [.5,.75), high [.75,.95), certified
+        [.95,1]. Certified additionally requires measured and benchmark
+        evidence with at least 100 samples; medium/high require non-estimated
+        evidence.
+    CapacityEvidence:
+      type: object
+      additionalProperties: false
+      required: [id, observation, sample_count]
+      properties:
+        id: { $ref: '#/components/schemas/CapacityIdentifier' }
+        observation:
+          $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation'
+        sample_count:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 1000000000000
+      description: >-
+        Embeds the canonical Agent observation. Metric, unit, target and
+        evidence semantics are therefore not redefined by Capacity Planner.
+    CapacityConstraint:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - id
+        - metric
+        - target_id
+        - unit
+        - safe_limit
+        - technical_limit
+        - max_observation_age_seconds
+        - minimum_samples
+        - accepted_evidence
+      properties:
+        schema_version: { type: string, const: capacity.constraint/v1 }
+        id: { $ref: '#/components/schemas/CapacityIdentifier' }
+        metric:
+          $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation/properties/metric'
+        target_id: { type: string, minLength: 1, maxLength: 128 }
+        unit:
+          $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation/properties/unit'
+        safe_limit:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1.0e+21
+          description: Operational boundary below the technical limit.
+        technical_limit:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1.0e+21
+          description: Saturation bound, not a guaranteed safe capacity.
+        max_observation_age_seconds:
+          type: integer
+          format: uint32
+          minimum: 1
+          maximum: 604800
+        minimum_samples:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 1000000000000
+        accepted_evidence:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation/properties/evidence'
+      description: >-
+        safe_limit must be lower than technical_limit. metric and unit must
+        match the canonical Agent metric registry. These cross-field rules are
+        enforced by the Go contract validator.
+    CapacityProfile:
+      allOf:
+        - $ref: './openapi-distributed-core.yaml#/components/schemas/DistributedObjectMetadata'
+        - type: object
+          required:
+            - schema_version
+            - subject
+            - workload_unit
+            - safe_capacity
+            - technical_limit
+            - minimum_reserve_percent
+            - constraints
+            - confidence
+            - evidence
+            - calibrated_at
+          properties:
+            schema_version: { type: string, const: capacity.profile/v1 }
+            subject: { $ref: '#/components/schemas/CapacitySubject' }
+            workload_unit: { $ref: '#/components/schemas/CapacityWorkloadUnit' }
+            safe_capacity:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 1.0e+21
+            technical_limit:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 1.0e+21
+            minimum_reserve_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 90
+            constraints:
+              type: array
+              minItems: 1
+              maxItems: 64
+              items: { $ref: '#/components/schemas/CapacityConstraint' }
+            confidence: { $ref: '#/components/schemas/CapacityConfidence' }
+            evidence:
+              type: array
+              minItems: 1
+              maxItems: 128
+              items: { $ref: '#/components/schemas/CapacityEvidence' }
+            calibrated_at: { type: string, format: date-time }
+      unevaluatedProperties: false
+      description: >-
+        safe_capacity must be lower than technical_limit and preserve at least
+        minimum_reserve_percent. Every constraint must have accepted, fresh
+        evidence at calibrated_at with the required aggregate sample count.
+    CapacityProfilePrecondition:
+      allOf:
+        - $ref: './openapi-distributed-core.yaml#/components/schemas/ObjectPrecondition'
+        - type: object
+          required: [generation]
+      description: >-
+        Recommendation generation always guards object_id, resource_version
+        and semantic generation of the CapacityProfile.
+    CapacityRecommendationAction:
+      type: string
+      enum:
+        - none
+        - add-role-capacity
+        - move-role
+        - increase-storage
+        - increase-network
+        - adjust-workload-policy
+        - reduce-load
+        - collect-evidence
+    CapacityBottleneck:
+      type: object
+      additionalProperties: false
+      required:
+        - constraint_id
+        - metric
+        - target_id
+        - unit
+        - evidence_id
+        - evidence_kind
+        - observed_value
+        - observed_at
+        - safe_limit
+        - technical_limit
+        - safe_reserve
+        - safe_reserve_percent
+        - technical_reserve
+        - technical_reserve_percent
+      properties:
+        constraint_id: { $ref: '#/components/schemas/CapacityIdentifier' }
+        metric:
+          $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation/properties/metric'
+        target_id: { type: string, minLength: 1, maxLength: 128 }
+        unit:
+          $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation/properties/unit'
+        evidence_id: { $ref: '#/components/schemas/CapacityIdentifier' }
+        evidence_kind:
+          $ref: './openapi-domain-inventory-agent.yaml#/components/schemas/AgentCapacityObservation/properties/evidence'
+        observed_value: { type: number, minimum: 0, maximum: 1.0e+21 }
+        observed_at: { type: string, format: date-time }
+        safe_limit: { type: number, exclusiveMinimum: 0, maximum: 1.0e+21 }
+        technical_limit: { type: number, exclusiveMinimum: 0, maximum: 1.0e+21 }
+        safe_reserve: { type: number, minimum: -1.0e+21, maximum: 1.0e+21 }
+        safe_reserve_percent: { type: number, minimum: -1.0e+21, maximum: 100 }
+        technical_reserve: { type: number, minimum: -1.0e+21, maximum: 1.0e+21 }
+        technical_reserve_percent: { type: number, minimum: -1.0e+21, maximum: 100 }
+      description: >-
+        The constraint with the smallest safe_reserve_percent wins; ties use
+        lexical constraint_id. The latest accepted observation wins; timestamp
+        ties use lexical evidence_id. Negative reserve means a breached bound.
+    CapacityRecommendation:
+      allOf:
+        - $ref: './openapi-distributed-core.yaml#/components/schemas/DistributedObjectMetadata'
+        - type: object
+          required:
+            - schema_version
+            - profile_precondition
+            - subject
+            - evaluated_at
+            - current_workload
+            - workload_unit
+            - safe_capacity
+            - technical_limit
+            - safe_reserve
+            - technical_reserve
+            - bottleneck
+            - confidence
+            - evidence
+            - action
+            - summary
+            - advisory_only
+          properties:
+            schema_version: { type: string, const: capacity.recommendation/v1 }
+            profile_precondition: { $ref: '#/components/schemas/CapacityProfilePrecondition' }
+            subject: { $ref: '#/components/schemas/CapacitySubject' }
+            evaluated_at: { type: string, format: date-time }
+            current_workload: { type: number, minimum: 0, maximum: 1.0e+21 }
+            workload_unit: { $ref: '#/components/schemas/CapacityWorkloadUnit' }
+            safe_capacity: { type: number, exclusiveMinimum: 0, maximum: 1.0e+21 }
+            technical_limit: { type: number, exclusiveMinimum: 0, maximum: 1.0e+21 }
+            safe_reserve: { type: number, minimum: -1.0e+21, maximum: 1.0e+21 }
+            technical_reserve: { type: number, minimum: -1.0e+21, maximum: 1.0e+21 }
+            bottleneck: { $ref: '#/components/schemas/CapacityBottleneck' }
+            confidence: { $ref: '#/components/schemas/CapacityConfidence' }
+            evidence:
+              type: array
+              minItems: 1
+              maxItems: 128
+              items: { $ref: '#/components/schemas/CapacityEvidence' }
+            action: { $ref: '#/components/schemas/CapacityRecommendationAction' }
+            target_role:
+              $ref: './openapi-distributed-core.yaml#/components/schemas/NodeRole'
+            summary: { type: string, minLength: 1, maxLength: 1024 }
+            advisory_only: { type: boolean, const: true }
+          allOf:
+            - if:
+                properties:
+                  action:
+                    enum: [add-role-capacity, move-role]
+                required: [action]
+              then:
+                required: [target_role]
+              else:
+                not:
+                  required: [target_role]
+            - if:
+                properties:
+                  confidence:
+                    type: object
+                    properties:
+                      level: { const: low }
+                    required: [level]
+                required: [confidence]
+              then:
+                properties:
+                  action: { const: collect-evidence }
+      unevaluatedProperties: false
+      description: >-
+        Every derived field is recomputed from the guarded profile and current
+        evidence. A low-confidence result may only recommend collect-evidence.
+        Operational actions require a breached safe boundary and remain purely
+        advisory; this contract cannot execute them.

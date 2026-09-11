@@ -1,0 +1,182 @@
+openapi: 3.1.0
+info:
+  title: Control Center Edge Gateway Authorization Contract
+  version: 0.6.0
+  description: >-
+    Side-effect-free authorization plan for explicitly selected routing, NAT,
+    or port-forwarding on a node with an explicit Edge Gateway assignment.
+    This fragment declares no execution endpoint and cannot mutate networking.
+paths: {}
+components:
+  schemas:
+    EdgeIdentifier:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,253}[A-Za-z0-9])?$'
+    EdgeOperation:
+      type: string
+      enum: [routing, nat, port-forwarding]
+      description: >-
+        The operation must be selected explicitly. Automatic selection and
+        implicit routing are not part of the contract.
+    EdgeCapability:
+      type: string
+      enum:
+        - network.edge.routing.plan
+        - network.edge.nat.plan
+        - network.edge.port-forwarding.plan
+    EdgeApproval:
+      type: object
+      additionalProperties: false
+      required: [id, policy_id, decision]
+      properties:
+        id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        policy_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        decision: { type: string, const: approved }
+      description: >-
+        Opaque reference to an explicit policy-engine decision. Credentials,
+        actor data, and executable content are forbidden by this schema.
+    EdgeTarget:
+      type: object
+      additionalProperties: false
+      required: [node_id, scope_id, site_id, wan_interface_id, lan_interface_id]
+      properties:
+        node_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        scope_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        site_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        wan_interface_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        lan_interface_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+      description: >-
+        WAN and LAN references must resolve to distinct interface paths on the
+        same node, site, and scope, and to zones classified as wan and lan.
+    EdgeAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required: [schema_version, mode, operation, target, approval, capability]
+      properties:
+        schema_version:
+          type: string
+          const: network.edge-gateway.authorization-request/v1
+        mode: { type: string, const: plan }
+        operation: { $ref: '#/components/schemas/EdgeOperation' }
+        target: { $ref: '#/components/schemas/EdgeTarget' }
+        approval: { $ref: '#/components/schemas/EdgeApproval' }
+        capability: { $ref: '#/components/schemas/EdgeCapability' }
+      allOf:
+        - if:
+            properties: { operation: { const: routing } }
+            required: [operation]
+          then:
+            properties: { capability: { const: network.edge.routing.plan } }
+        - if:
+            properties: { operation: { const: nat } }
+            required: [operation]
+          then:
+            properties: { capability: { const: network.edge.nat.plan } }
+        - if:
+            properties: { operation: { const: port-forwarding } }
+            required: [operation]
+          then:
+            properties: { capability: { const: network.edge.port-forwarding.plan } }
+      description: >-
+        capability must be the exact operation-specific *.plan capability.
+        Unknown execution, command, route, credential, endpoint, or arbitrary
+        payload fields are rejected.
+    EdgeEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - edge_role_assignment_id
+        - edge_role_resource_version
+        - wan_interface_id
+        - wan_zone_id
+        - lan_interface_id
+        - lan_zone_id
+        - approval_id
+        - approval_policy_id
+        - capability
+      properties:
+        edge_role_assignment_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        edge_role_resource_version:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Opaque Core RoleAssignment resource version.
+        wan_interface_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        wan_zone_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        lan_interface_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        lan_zone_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        approval_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        approval_policy_id: { $ref: '#/components/schemas/EdgeIdentifier' }
+        capability: { $ref: '#/components/schemas/EdgeCapability' }
+    EdgePlanStep:
+      type: string
+      enum:
+        - validate-edge-role
+        - validate-explicit-approval
+        - validate-operation-capability
+        - validate-distinct-wan-lan-interfaces
+        - emit-authorized-plan
+    EdgeAuthorizationPlan:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - plan_id
+        - mode
+        - operation
+        - target
+        - required_capability
+        - evidence
+        - steps
+        - authorized
+        - production_mutation_enabled
+      properties:
+        schema_version:
+          type: string
+          const: network.edge-gateway.authorization-plan/v1
+        plan_id:
+          type: string
+          pattern: '^edge-plan:[0-9a-f]{64}$'
+        mode: { type: string, const: plan }
+        operation: { $ref: '#/components/schemas/EdgeOperation' }
+        target: { $ref: '#/components/schemas/EdgeTarget' }
+        required_capability: { $ref: '#/components/schemas/EdgeCapability' }
+        evidence: { $ref: '#/components/schemas/EdgeEvidence' }
+        steps:
+          type: array
+          minItems: 5
+          maxItems: 5
+          prefixItems:
+            - { const: validate-edge-role }
+            - { const: validate-explicit-approval }
+            - { const: validate-operation-capability }
+            - { const: validate-distinct-wan-lan-interfaces }
+            - { const: emit-authorized-plan }
+          items: false
+        authorized: { type: boolean, const: true }
+        production_mutation_enabled: { type: boolean, const: false }
+      description: >-
+        Deterministic authorization evidence only. It is not desired state, a
+        worker instruction, or permission to mutate a production host.
+    EdgeDenyCode:
+      type: string
+      enum:
+        - EDGE_REQUEST_INVALID
+        - EDGE_OPERATION_EXPLICIT_REQUIRED
+        - EDGE_OPERATION_UNSUPPORTED
+        - EDGE_PLAN_ONLY
+        - EDGE_ROLE_REQUIRED
+        - EDGE_APPROVAL_REQUIRED
+        - EDGE_CAPABILITY_REQUIRED
+        - EDGE_DISTINCT_INTERFACES_REQUIRED
+        - EDGE_INTERFACE_NOT_FOUND
+        - EDGE_INTERFACE_BOUNDARY_MISMATCH
+        - EDGE_ZONE_NOT_FOUND
+        - EDGE_ZONE_BOUNDARY_MISMATCH
+        - EDGE_WAN_ZONE_REQUIRED
+        - EDGE_LAN_ZONE_REQUIRED
+        - EDGE_INVENTORY_INVALID
+        - EDGE_NETWORK_SAFETY_POLICY
+      description: Stable fail-closed machine code; human text is not an API contract.

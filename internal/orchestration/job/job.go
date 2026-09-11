@@ -64,19 +64,15 @@ type CreateRequest struct {
 	MaxAttempts    int
 	Now            time.Time
 }
-
 type RetryPolicy struct {
 	BaseDelay time.Duration
 	MaxDelay  time.Duration
 }
-
 type Filter struct {
 	ChangeID string
 	Status   Status
 }
 
-// Repository defines the persistence boundary. SQL implementations must make
-// Claim and terminal updates atomic and compare the lease token.
 type Repository interface {
 	Create(context.Context, CreateRequest) (created Job, wasCreated bool, err error)
 	Get(context.Context, string) (Job, error)

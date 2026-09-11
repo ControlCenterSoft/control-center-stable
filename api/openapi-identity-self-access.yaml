@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: Control Center Identity Self Access API
+  version: 0.1.0
+  description: Read-only contract for an authenticated identity to inspect only its own RBAC grants.
+paths:
+  /api/v1/identity/self/access:
+    get:
+      operationId: getIdentitySelfAccess
+      summary: Read the current identity's RBAC grants
+      description: >-
+        Returns role, scope and permission grants only for the authenticated identity.
+        The target identity is derived exclusively from the authenticated session; callers
+        cannot select another subject. The endpoint is unavailable until the mandatory
+        first-login password change has been completed.
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current identity RBAC grants.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAccessResponse'
+        '401':
+          description: Authentication is required or the session is no longer valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Mandatory first-login password change is still required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: RBAC introspection or mandatory audit persistence is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cc_session
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    SelfAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [subject_id, grants]
+      properties:
+        subject_id:
+          type: string
+          minLength: 1
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/EffectiveGrant'
+    EffectiveGrant:
+      type: object
+      additionalProperties: false
+      required: [role_name, scope, permissions]
+      properties:
+        role_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        scope:
+          $ref: '#/components/schemas/Scope'
+        permissions:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: Sorted permissions granted by this role. The value '*' denotes an explicit wildcard role grant.
+    Scope:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [global, tenant, site, resource]
+        id:
+          type: string
+          minLength: 1
+      description: Global scope omits id; tenant, site and resource scopes require id.
+    ErrorResponse:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: true
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string

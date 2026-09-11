@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.example/schemas/capacity-workload-profile-v1.schema.json",
+  "title": "Control Center Capacity Workload Profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "scope_id",
+    "workload_unit",
+    "sample_count",
+    "slo_conforming_samples",
+    "observed_safe_boundary",
+    "recommended_safe_workload",
+    "observed_technical_boundary",
+    "boundary_observed",
+    "confidence",
+    "status",
+    "reason",
+    "advisory_only",
+    "production_mutation"
+  ],
+  "properties": {
+    "schema_version": {"const": "capacity.workload-profile/v1"},
+    "profile_id": {"type": "string", "pattern": "^wlp-[0-9a-f]{24}$"},
+    "scope_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "workload_unit": {
+      "enum": ["devices", "concurrent-sessions", "jobs-per-minute", "requests-per-second", "instances"]
+    },
+    "sample_count": {"type": "integer", "minimum": 3, "maximum": 4096},
+    "slo_conforming_samples": {"type": "integer", "minimum": 0, "maximum": 4096},
+    "observed_safe_boundary": {"type": "number", "minimum": 0},
+    "recommended_safe_workload": {"type": "number", "minimum": 0},
+    "observed_technical_boundary": {"type": "number", "exclusiveMinimum": 0},
+    "boundary_observed": {"type": "boolean"},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "status": {"enum": ["ready", "collect-evidence", "blocked"]},
+    "reason": {
+      "enum": [
+        "slo_boundary_observed",
+        "saturation_boundary_not_observed",
+        "non_monotonic_slo_evidence",
+        "no_slo_conforming_sample"
+      ]
+    },
+    "advisory_only": {"const": true},
+    "production_mutation": {"const": false}
+  }
+}

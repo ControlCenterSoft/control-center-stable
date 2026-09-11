@@ -19,7 +19,6 @@ func NewAuditLog(db *sql.DB) (*AuditLog, error) {
 	}
 	return &AuditLog{db: db}, nil
 }
-
 func (l *AuditLog) Append(ctx context.Context, event audit.Event) error {
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -42,44 +41,25 @@ func (l *AuditLog) Append(ctx context.Context, event audit.Event) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `
-INSERT INTO cc_audit_events
-  (id,occurred_at,action,outcome,actor_id,subject_id,source_ip,correlation_id,details,previous_hash,hash)
-VALUES
-  ($1::uuid,$2,$3,$4,NULLIF($5,'')::uuid,NULLIF($6,''),NULLIF($7,'')::inet,NULLIF($8,''),$9::jsonb,NULLIF($10,''),$11)`,
-		prepared.ID, prepared.OccurredAt, prepared.Action, prepared.Outcome, prepared.ActorID,
-		prepared.SubjectID, prepared.SourceIP, prepared.CorrelationID, string(details), prepared.PreviousHash, prepared.Hash,
-	)
+	_, err = tx.ExecContext(ctx, `INSERT INTO cc_audit_events (id,occurred_at,action,outcome,actor_id,subject_id,source_ip,correlation_id,details,previous_hash,hash) VALUES ($1::uuid,$2,$3,$4,NULLIF($5,'')::uuid,NULLIF($6,''),NULLIF($7,'')::inet,NULLIF($8,''),$9::jsonb,NULLIF($10,''),$11)`, prepared.ID, prepared.OccurredAt, prepared.Action, prepared.Outcome, prepared.ActorID, prepared.SubjectID, prepared.SourceIP, prepared.CorrelationID, string(details), prepared.PreviousHash, prepared.Hash)
 	if err != nil {
 		return err
 	}
 	return tx.Commit()
 }
-
-// VerifyChain reads the append-only log in database sequence order and checks
-// every persisted predecessor and content hash before the API starts serving.
 func (l *AuditLog) VerifyChain(ctx context.Context) error {
-	rows, err := l.db.QueryContext(ctx, `
-SELECT id::text, occurred_at, action, outcome, actor_id::text, subject_id,
-       host(source_ip), correlation_id, details, previous_hash, hash
-FROM cc_audit_events
-ORDER BY sequence_id ASC`)
+	rows, err := l.db.QueryContext(ctx, `SELECT id::text, occurred_at, action, outcome, actor_id::text, subject_id, host(source_ip), correlation_id, details, previous_hash, hash FROM cc_audit_events ORDER BY sequence_id ASC`)
 	if err != nil {
 		return fmt.Errorf("read audit chain: %w", err)
 	}
 	defer rows.Close()
-
 	previousHash := ""
 	sequenceOffset := 0
 	for rows.Next() {
 		var event audit.Event
 		var actorID, subjectID, sourceIP, correlationID, previous sql.NullString
 		var details []byte
-		if err := rows.Scan(
-			&event.ID, &event.OccurredAt, &event.Action, &event.Outcome,
-			&actorID, &subjectID, &sourceIP, &correlationID, &details,
-			&previous, &event.Hash,
-		); err != nil {
+		if err := rows.Scan(&event.ID, &event.OccurredAt, &event.Action, &event.Outcome, &actorID, &subjectID, &sourceIP, &correlationID, &details, &previous, &event.Hash); err != nil {
 			return fmt.Errorf("scan audit event at offset %d: %w", sequenceOffset, err)
 		}
 		event.OccurredAt = event.OccurredAt.UTC().Truncate(time.Microsecond)
@@ -102,7 +82,6 @@ ORDER BY sequence_id ASC`)
 	}
 	return nil
 }
-
 func nullString(value sql.NullString) string {
 	if !value.Valid {
 		return ""

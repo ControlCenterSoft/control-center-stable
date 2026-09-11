@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X control-center/internal/buildinfo.Commit=$(COMMIT) \
 	-X control-center/internal/buildinfo.BuildTime=$(BUILD_TIME)
 
-.PHONY: all build test test-race vet fmt-check check ci clean image compose-config
+.PHONY: all build test test-race vet fmt-check check ci clean image
 
 all: check build
 
@@ -27,7 +27,7 @@ vet:
 	go vet ./...
 
 fmt-check:
-	@test -z "$$(gofmt -l cmd internal)" || { gofmt -d cmd internal; exit 1; }
+	@test -z "$$(gofmt -l cmd internal migrations)" || { gofmt -d cmd internal migrations; exit 1; }
 
 check: fmt-check vet test-race
 
@@ -39,9 +39,6 @@ image:
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_TIME=$(BUILD_TIME) \
 		-t control-center:$(VERSION) .
-
-compose-config:
-	docker compose --env-file .env.staging -f compose.staging.yml config --quiet
 
 clean:
 	rm -rf bin dist coverage.out coverage.html

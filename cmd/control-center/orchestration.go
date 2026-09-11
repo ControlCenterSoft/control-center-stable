@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"control-center/internal/corecontracts"
+	coreactionapi "control-center/internal/corecontracts/actionapi"
 	identityapi "control-center/internal/identity/httpapi"
 	"control-center/internal/identity/rbac"
 	"control-center/internal/orchestration/action"
@@ -26,7 +28,7 @@ type recordResourceInput struct {
 	State      events.ResourceState `json:"state"`
 }
 
-func newOrchestrationHandler(identity *identityapi.Server, db *sql.DB, middleware func(http.Handler) http.Handler) (*orchestrationapi.Server, worker.Worker, error) {
+func newOrchestrationHandler(identity *identityapi.Server, db *sql.DB, middleware func(http.Handler) http.Handler, coreObjects corecontracts.ObjectRepository) (*orchestrationapi.Server, worker.Worker, error) {
 	registry := action.NewRegistry()
 	definition := action.NewTyped(
 		"resource.record",
@@ -70,6 +72,13 @@ func newOrchestrationHandler(identity *identityapi.Server, db *sql.DB, middlewar
 	if err := registry.Register(definition); err != nil {
 		return nil, worker.Worker{}, err
 	}
+	coreDefinition, err := coreactionapi.NewApplyAction(coreObjects)
+	if err != nil {
+		return nil, worker.Worker{}, err
+	}
+	if err := registry.Register(coreDefinition); err != nil {
+		return nil, worker.Worker{}, err
+	}
 	repository, err := postgres.NewJobRepository(db)
 	if err != nil {
 		return nil, worker.Worker{}, err
@@ -96,8 +105,9 @@ func newOrchestrationHandler(identity *identityapi.Server, db *sql.DB, middlewar
 	}
 	runner := worker.Worker{
 		ID: "embedded-worker", Repository: repository, Registry: registry,
-		Allowlist: worker.Set("resource.record"), Permissions: worker.Set(string(rbac.PermissionActionsExecute)),
-		LeaseTTL: 30 * time.Second, RetryPolicy: job.RetryPolicy{BaseDelay: time.Second, MaxDelay: time.Minute},
+		Allowlist:   worker.Set("resource.record", coreactionapi.ApplyActionName),
+		Permissions: worker.Set(string(rbac.PermissionActionsExecute), string(rbac.PermissionCoreObjectsWrite)),
+		LeaseTTL:    30 * time.Second, RetryPolicy: job.RetryPolicy{BaseDelay: time.Second, MaxDelay: time.Minute},
 		Failures: worker.NoFailures{}, Now: time.Now,
 	}
 	return server, runner, nil

@@ -18,9 +18,6 @@ import (
 
 type invocationContextKey struct{}
 
-// Invocation is the execution contract passed to action implementations.
-// Downstream integrations must derive their idempotency keys from this value
-// so a worker retry cannot repeat an already accepted external operation.
 type Invocation struct {
 	JobID          string `json:"jobId"`
 	ChangeID       string `json:"changeId"`
@@ -29,8 +26,6 @@ type Invocation struct {
 	Attempt        int    `json:"attempt"`
 }
 
-// DownstreamIdempotencyKey returns a stable, target-specific key. It remains
-// unchanged across retries of the same durable job.
 func (i Invocation) DownstreamIdempotencyKey(operation string) (string, error) {
 	if i.JobID == "" || i.ChangeID == "" || i.ActionName == "" || i.IdempotencyKey == "" || operation == "" {
 		return "", errors.New("complete invocation and downstream operation are required")
@@ -82,9 +77,7 @@ type Registry struct {
 	actions map[string]Definition
 }
 
-func NewRegistry() *Registry {
-	return &Registry{actions: make(map[string]Definition)}
-}
+func NewRegistry() *Registry { return &Registry{actions: make(map[string]Definition)} }
 
 func (r *Registry) Register(definition Definition) error {
 	if definition.Name == "" || definition.Permission == "" || !definition.Risk.Valid() {
@@ -129,16 +122,7 @@ func (r *Registry) List() []Definition {
 	return result
 }
 
-// NewTyped converts a compile-time typed action into the runtime registry
-// contract. Unknown JSON properties are rejected to keep declared schemas and
-// executable inputs aligned.
-func NewTyped[T any](
-	name, permission string,
-	risk policy.Risk,
-	inputSchema json.RawMessage,
-	execute func(context.Context, T) (events.Output, error),
-	verify func(context.Context, T, events.Output) error,
-) Definition {
+func NewTyped[T any](name, permission string, risk policy.Risk, inputSchema json.RawMessage, execute func(context.Context, T) (events.Output, error), verify func(context.Context, T, events.Output) error) Definition {
 	decode := func(raw json.RawMessage) (T, error) {
 		var input T
 		decoder := json.NewDecoder(bytes.NewReader(raw))
