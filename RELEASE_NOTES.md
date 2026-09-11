@@ -1,11 +1,13 @@
 # Control Center 0.26.0 Stable
 
-Release status: **stable**.
+Статус релиза: **PUBLIC STABLE**.
 
-Control Center 0.26.0 adds permission-gated read-only verification of append-only Audit-chain integrity. The successful response exposes only bounded aggregate evidence, detects tampering or broken links, fails closed on read/decode/hash/link errors, and records successful verification in Audit before returning success.
+Control Center 0.26.0 добавляет permission-gated read-only проверку целостности append-only Audit-цепочки. Успешный ответ возвращает только ограниченное агрегированное evidence, обнаруживает повреждение данных и разрывы цепочки, работает fail-closed при ошибках чтения, декодирования, hash/link verification и записывает успешную проверку в Audit до возврата результата.
 
-The release also adds migration `0010_legacy_03_schema_compatibility` for supported legacy PostgreSQL schemas without rewriting previously published migration files.
+Также добавлена migration `0010_legacy_03_schema_compatibility` для поддерживаемых legacy PostgreSQL-схем. Ранее опубликованные migration-файлы не переписываются.
 
-Independent stable qualification passed provenance/public-safety checks, format/vet/unit/contracts/build, PostgreSQL 15–18 clean-install and supported-upgrade scenarios, PostgreSQL adapter/restart checks, race detection, deterministic Linux AMD64 packaging and the final stable qualification gate.
+Stable qualification подтвердила provenance/public-safety, format/vet/unit/contracts/build, clean-install и supported-upgrade для PostgreSQL 15–18, PostgreSQL adapter/restart checks, race detection, детерминированную Linux AMD64 упаковку и финальный stable gate.
 
-Clean install uses `admin` / `admin` with mandatory password change on first login. Upgrade preserves the existing administrator password.
+Чистая установка создаёт `admin` / `admin` с обязательной сменой пароля при первом входе. Обновление сохраняет существующий пароль администратора и не сбрасывает его к первоначальному значению.
+
+В публичных release notes не должны раскрываться внутренние процессы разработки, runner-инфраструктура, внутренние адреса, секреты или названия внутренних AI/reviewer-процессов.
