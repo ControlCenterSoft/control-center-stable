@@ -106,6 +106,7 @@ systemd-run --quiet --wait --pipe --collect \
   --property=PrivateTmp=yes \
   --property=ProtectSystem=strict \
   --property=ProtectHome=yes \
+  --property="ReadWritePaths=$BACKUP_DIR" \
   --property="EnvironmentFile=$ENV_FILE" \
   -- "$pg_dump_bin" --format=custom --file="$backup_file"
 [[ -s "$backup_file" ]] || fail "database backup was not created"
