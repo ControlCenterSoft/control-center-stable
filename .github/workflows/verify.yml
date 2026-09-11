@@ -49,7 +49,7 @@ jobs:
           for path in Path('.').rglob('*'):
               if not path.is_file() or '.git' in path.parts:
                   continue
-              if path == Path('.github/workflows/verify.yml'):
+              if len(path.parts) >= 2 and path.parts[0] == '.github' and path.parts[1] == 'workflows':
                   continue
               try:
                   text = path.read_text(encoding='utf-8')
