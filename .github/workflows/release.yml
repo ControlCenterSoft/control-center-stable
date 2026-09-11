@@ -13,16 +13,17 @@ concurrency:
 env:
   UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
   UPSTREAM_TAG: v0.24.0
-  UPSTREAM_SHA: b5b534e368acccbef7dc74f9aba4c954cb747798
+  UPSTREAM_SHA: 5e6a6dcc41f9d81f028dab5291e87059a1dfeea3
+  RELEASE_METADATA_SHA: b5b534e368acccbef7dc74f9aba4c954cb747798
   VERSION: 0.24.0
 
 jobs:
   source-qualification:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'release/0.24.0')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Checkout exact official source release
+      - name: Checkout exact immutable source tag
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -60,7 +61,7 @@ jobs:
           go build -trimpath -buildvcs=false ./cmd/control-center
 
   postgres-migration-qualification:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'release/0.24.0')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -83,7 +84,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
-      - name: Checkout exact official source release
+      - name: Checkout exact immutable source tag
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -112,7 +113,7 @@ jobs:
           go test ./migrations -run "^${qualification_test}$" -count=1 -v
 
   postgres-adapter-qualification:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'release/0.24.0')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -134,7 +135,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
-      - name: Checkout exact official source release
+      - name: Checkout exact immutable source tag
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -160,7 +161,7 @@ jobs:
         run: go test ./internal/persistence/postgres -run '^TestPostgres' -count=1 -v
 
   race-qualification:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'release/0.24.0')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -178,7 +179,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
-      - name: Checkout exact official source release
+      - name: Checkout exact immutable source tag
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -204,7 +205,7 @@ jobs:
         run: go test -race -count=1 ./...
 
   promote-and-publish:
-    if: github.ref_type == 'branch' && github.ref_name == 'release/0.24.0'
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'release/0.24.0')
     needs:
       - source-qualification
       - postgres-migration-qualification
@@ -261,7 +262,7 @@ jobs:
 
           ## Current stable release
 
-          **0.24.0** is the current stable release. Its product source is promoted from the exact official source release `ControlCenterSoft/control-center-development@v0.24.0`, commit `b5b534e368acccbef7dc74f9aba4c954cb747798`, and is re-qualified independently before stable publication.
+          **0.24.0** is the current stable release. Its product source is promoted from the immutable official source tag `ControlCenterSoft/control-center-development@v0.24.0`, commit `5e6a6dcc41f9d81f028dab5291e87059a1dfeea3`. The later commit `b5b534e368acccbef7dc74f9aba4c954cb747798` only finalized published release metadata and did not change product code.
 
           The stable tree contains the promoted product source plus stable-only packaging, installation and service files.
 
@@ -335,7 +336,7 @@ jobs:
 
           Release status: **stable**.
 
-          Stable 0.24.0 promotes the exact official source release `v0.24.0` (`b5b534e368acccbef7dc74f9aba4c954cb747798`) after an independent stable qualification pass.
+          Stable 0.24.0 promotes the immutable official source tag `v0.24.0` (`5e6a6dcc41f9d81f028dab5291e87059a1dfeea3`) after an independent stable qualification pass. Post-release metadata was finalized by `b5b534e368acccbef7dc74f9aba4c954cb747798`; that metadata commit did not change product code.
 
           The accumulated stable line includes the current local authentication and mandatory first-password-change model, session controls, RBAC/self-introspection, audit boundaries, lifecycle/recovery contracts, distributed-core and product API contracts, capacity/placement evidence contracts, and the 0.24.0 bounded protection against password brute force and credential spraying.
 
@@ -351,14 +352,14 @@ jobs:
             "channel": "stable",
             "upstream_repository": "ControlCenterSoft/control-center-development",
             "upstream_tag": "v0.24.0",
-            "upstream_commit": "b5b534e368acccbef7dc74f9aba4c954cb747798"
+            "upstream_commit": "5e6a6dcc41f9d81f028dab5291e87059a1dfeea3",
+            "release_metadata_commit": "b5b534e368acccbef7dc74f9aba4c954cb747798"
           }
           EOF
 
           cat > stable/scripts/build-release.sh <<'SCRIPT'
           #!/usr/bin/env bash
           set -Eeuo pipefail
-
           repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
           cd "$repo_root"
           version="$(tr -d '\n' < VERSION)"
@@ -375,12 +376,10 @@ jobs:
           bundle="control-center-$version"
           mkdir -p "$stage/$bundle/bin" "$stage/$bundle/api" "$stage/$bundle/config" \
             "$stage/$bundle/deploy/systemd" "$stage/$bundle/migrations" "$stage/$bundle/scripts" "$stage/$bundle/docs"
-
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_binary" build \
             -trimpath -buildvcs=false \
             -ldflags="-s -w -X control-center/internal/buildinfo.Version=$version -X control-center/internal/buildinfo.Commit=$commit -X control-center/internal/buildinfo.BuildTime=$build_time" \
             -o "$stage/$bundle/bin/control-center" ./cmd/control-center
-
           cp README.md INSTALL.md RELEASE_NOTES.md SECURITY.md ARCHITECTURE.md ROADMAP.md VERSION RELEASE-MANIFEST.json "$stage/$bundle/"
           cp -a api/. "$stage/$bundle/api/"
           cp config/control-center.env.example "$stage/$bundle/config/"
@@ -389,10 +388,8 @@ jobs:
           cp scripts/migrate.sh "$stage/$bundle/scripts/"
           if [[ -d docs ]]; then cp -a docs/. "$stage/$bundle/docs/"; fi
           chmod 0755 "$stage/$bundle/bin/control-center" "$stage/$bundle/scripts/migrate.sh"
-
           artifact="$dist_dir/$bundle-linux-amd64.tar.gz"
-          tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owner \
-            -C "$stage" -czf "$artifact" "$bundle"
+          tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owner -C "$stage" -czf "$artifact" "$bundle"
           (cd "$dist_dir" && sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256")
           printf '%s\n' "$artifact" "$artifact.sha256"
           SCRIPT
@@ -440,8 +437,7 @@ jobs:
           upstream_epoch="$(git -C ../source show -s --format=%ct HEAD)"
           SOURCE_DATE_EPOCH="$upstream_epoch" COMMIT="$UPSTREAM_SHA" bash scripts/build-release.sh
           (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
-          git archive --format=tar.gz --prefix="control-center-${VERSION}-source/" \
-            -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_SHA"
+          git archive --format=tar.gz --prefix="control-center-${VERSION}-source/" -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_SHA"
           python3 - <<PY
           import json, os
           data = {
@@ -451,6 +447,7 @@ jobs:
               "upstream_repository": os.environ["UPSTREAM_REPOSITORY"],
               "upstream_tag": os.environ["UPSTREAM_TAG"],
               "upstream_commit": os.environ["UPSTREAM_SHA"],
+              "release_metadata_commit": os.environ["RELEASE_METADATA_SHA"],
               "qualification_run_id": os.environ["GITHUB_RUN_ID"],
               "qualification": "passed"
           }
@@ -498,7 +495,6 @@ jobs:
             git tag -a "$tag" "$STABLE_SHA" -m "Control Center ${VERSION} stable"
             git push origin "$tag"
           fi
-
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" \
               "dist/control-center-${VERSION}-linux-amd64.tar.gz" \
@@ -506,8 +502,7 @@ jobs:
               "dist/control-center-${VERSION}-source.tar.gz" \
               "dist/control-center-${VERSION}.release-manifest.json" \
               "dist/control-center-${VERSION}.qualification.json" \
-              "dist/SHA256SUMS" \
-              --repo "$GITHUB_REPOSITORY" --clobber
+              "dist/SHA256SUMS" --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$tag" \
               "dist/control-center-${VERSION}-linux-amd64.tar.gz" \
