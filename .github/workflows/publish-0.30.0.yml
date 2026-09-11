@@ -1,0 +1,149 @@
+name: Publish Control Center 0.30.0 Public Stable
+
+on:
+  push:
+    branches:
+      - publication/v0.30.0
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-control-center-stable-0.30.0
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.30.0
+  STABLE_SHA: 4526fad9fb3bd3ef5a05661f1f4a375eb721a79b
+  SOURCE_SHA: a4851fd0b35a3bbb836426f68ce859caf780e829
+  QUALIFICATION_RUN_ID: '34656790604'
+  QUALIFICATION_HEAD_SHA: 6a7408d07df81470f2b86a1c8e45294391ca276b
+  PROMOTION_RUN_ID: '34657011434'
+  STABLE_VERIFY_RUN_ID: '34657208803'
+
+jobs:
+  publish:
+    name: Publish qualified immutable Stable release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify release evidence and uniqueness
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "tag already exists" >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > /tmp/qualification.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID" > /tmp/promotion.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STABLE_VERIFY_RUN_ID" > /tmp/stable-verify.json
+          python3 - <<'PY'
+          import json, os
+          q=json.load(open('/tmp/qualification.json', encoding='utf-8'))
+          p=json.load(open('/tmp/promotion.json', encoding='utf-8'))
+          v=json.load(open('/tmp/stable-verify.json', encoding='utf-8'))
+          assert q.get('status') == 'completed' and q.get('conclusion') == 'success', (q.get('status'), q.get('conclusion'))
+          assert q.get('head_sha') == os.environ['QUALIFICATION_HEAD_SHA'], q.get('head_sha')
+          assert p.get('status') == 'completed' and p.get('conclusion') == 'success', (p.get('status'), p.get('conclusion'))
+          assert v.get('status') == 'completed' and v.get('conclusion') == 'success', (v.get('status'), v.get('conclusion'))
+          assert v.get('head_sha') == os.environ['STABLE_SHA'], v.get('head_sha')
+          print('RELEASE_EVIDENCE=PASS')
+          PY
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.STABLE_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify exact Stable tree and public boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$STABLE_SHA"
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          grep -F '"qualification_result": "success"' RELEASE-MANIFEST.json
+          grep -F '"promotion_result": "success"' RELEASE-MANIFEST.json
+          grep -F "$SOURCE_SHA" RELEASE-MANIFEST.json
+          grep -q '0.30.0' README.md
+          grep -q '0.30.0' INSTALL.md
+          grep -q '0.30.0' RELEASE_NOTES.md
+          grep -q 'Public Stable.*0.30.0\|0.30.0.*Public Stable' ROADMAP.md
+          test -f docs/RELEASE_0.30.0_RU.md
+          test ! -e CONTRIBUTING.md
+          test ! -e GEMINI.md
+          test ! -e .github/workflows/finalize-0.24.0.yml
+          test ! -e .github/workflows/promote-exact-tree-0.24.0.yml
+          test ! -e .github/workflows/release.yml
+          if grep -RInE --include='*.md' '(Gemini|AI Development Infrastructure|AI Development Orchestrator|CI Fabric|GitHub[ -]hosted runner|control-center-development|internal IP|192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+)' README.md INSTALL.md RELEASE_NOTES.md ROADMAP.md ARCHITECTURE.md docs; then
+            echo 'internal development material detected in public documentation' >&2
+            exit 1
+          fi
+          make fmt-check
+          go vet ./...
+          go test ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+
+      - name: Build release assets and evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="$SOURCE_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+          git archive --format=tar.gz --prefix="control-center-${VERSION}-source/" -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_SHA"
+          cp RELEASE-MANIFEST.json "dist/control-center-${VERSION}.release-manifest.json"
+          printf '{"schema":"control-center.stable-qualification.v1","version":"%s","result":"pass","qualification_run_id":%s,"promotion_run_id":%s,"stable_verify_run_id":%s,"source_commit":"%s","stable_commit":"%s"}\n' "$VERSION" "$QUALIFICATION_RUN_ID" "$PROMOTION_RUN_ID" "$STABLE_VERIFY_RUN_ID" "$SOURCE_SHA" "$STABLE_SHA" > "dist/control-center-${VERSION}.qualification.json"
+          printf '{"schema":"control-center.stable-provenance.v1","version":"%s","source_tag":"v%s","source_commit":"%s","stable_commit":"%s","qualification_run_id":%s,"promotion_run_id":%s,"stable_verify_run_id":%s}\n' "$VERSION" "$VERSION" "$SOURCE_SHA" "$STABLE_SHA" "$QUALIFICATION_RUN_ID" "$PROMOTION_RUN_ID" "$STABLE_VERIFY_RUN_ID" > "dist/control-center-${VERSION}.provenance.json"
+          (cd dist && sha256sum \
+            "control-center-${VERSION}-linux-amd64.tar.gz" \
+            "control-center-${VERSION}-linux-amd64.tar.gz.sha256" \
+            "control-center-${VERSION}-source.tar.gz" \
+            "control-center-${VERSION}.release-manifest.json" \
+            "control-center-${VERSION}.qualification.json" \
+            "control-center-${VERSION}.provenance.json" > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Publish immutable tag and GitHub release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "tag already exists" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" "$STABLE_SHA" -m "Control Center $VERSION Public Stable"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" \
+            "dist/control-center-${VERSION}-linux-amd64.tar.gz" \
+            "dist/control-center-${VERSION}-linux-amd64.tar.gz.sha256" \
+            "dist/control-center-${VERSION}-source.tar.gz" \
+            "dist/control-center-${VERSION}.release-manifest.json" \
+            "dist/control-center-${VERSION}.qualification.json" \
+            "dist/control-center-${VERSION}.provenance.json" \
+            dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Control Center $VERSION" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-0.30.0-public-stable-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
