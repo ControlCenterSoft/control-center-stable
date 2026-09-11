@@ -5,5 +5,7 @@
   "source_tag": "v0.29.0",
   "source_commit": "306229bcaf650b62f4c23a4252d39c65f50e3481",
   "qualification_run_id": 34652882226,
-  "qualification_result": "success"
+  "qualification_result": "success",
+  "promotion_run_id": 34653569064,
+  "promotion_result": "success"
 }
