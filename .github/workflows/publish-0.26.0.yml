@@ -1,0 +1,106 @@
+name: Publish Control Center 0.26.0 Public Stable
+
+on:
+  push:
+    branches:
+      - publication/v0.26.0
+
+permissions:
+  contents: write
+
+env:
+  VERSION: 0.26.0
+  STABLE_SHA: 5a25444f38d9a7769f3560c170d5fedfa55e8065
+  CANONICAL_SHA: 23c3b971cfeb2081919ffdb88bc0e0bdf6fc6d15
+  QUALIFICATION_RUN_ID: '34627052547'
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify release does not already exist
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists" >&2
+            exit 1
+          fi
+
+      - name: Verify green qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID --jq .conclusion)" = success
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.STABLE_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify exact Stable tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$STABLE_SHA"
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          grep -F '"qualification_result": "success"' RELEASE-MANIFEST.json
+          grep -F "$CANONICAL_SHA" RELEASE-MANIFEST.json
+          make fmt-check
+          go vet ./...
+          go test ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="$CANONICAL_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+          git archive --format=tar.gz --prefix="control-center-${VERSION}-source/" -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_SHA"
+          cp RELEASE-MANIFEST.json "dist/control-center-${VERSION}.release-manifest.json"
+          printf '{"schema":"control-center.stable-qualification.v1","version":"%s","result":"pass","qualification_run_id":%s,"canonical_commit":"%s","stable_commit":"%s"}\n' "$VERSION" "$QUALIFICATION_RUN_ID" "$CANONICAL_SHA" "$STABLE_SHA" > "dist/control-center-${VERSION}.qualification.json"
+          printf '{"schema":"control-center.stable-provenance.v1","version":"%s","canonical_repository":"ControlCenterSoft/control-center-development","canonical_tag":"v%s","canonical_commit":"%s","stable_commit":"%s","qualification_run_id":%s}\n' "$VERSION" "$VERSION" "$CANONICAL_SHA" "$STABLE_SHA" "$QUALIFICATION_RUN_ID" > "dist/control-center-${VERSION}.provenance.json"
+          (cd dist && sha256sum control-center-0.26.0-linux-amd64.tar.gz control-center-0.26.0-linux-amd64.tar.gz.sha256 control-center-0.26.0-source.tar.gz control-center-0.26.0.release-manifest.json control-center-0.26.0.qualification.json control-center-0.26.0.provenance.json > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Publish immutable tag and GitHub release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "tag already exists" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" "$STABLE_SHA" -m "Control Center $VERSION Public Stable"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" \
+            dist/control-center-0.26.0-linux-amd64.tar.gz \
+            dist/control-center-0.26.0-linux-amd64.tar.gz.sha256 \
+            dist/control-center-0.26.0-source.tar.gz \
+            dist/control-center-0.26.0.release-manifest.json \
+            dist/control-center-0.26.0.qualification.json \
+            dist/control-center-0.26.0.provenance.json \
+            dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Control Center $VERSION" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-0.26.0-public-stable-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
