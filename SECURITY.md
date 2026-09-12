@@ -1,14 +1,19 @@
-# Security policy
+# Политика безопасности Control Center
 
-## Repository rules
+## Базовые правила
 
-- Never commit credentials, private keys, tokens, populated environment files or customer data.
-- Never commit private infrastructure topology or environment-specific access details.
-- Authentication and authorization are enforced server-side.
-- External requests must not become arbitrary shell execution.
-- Privileged operations must use typed, allowlisted actions with explicit authorization and audit evidence.
-- Runtime images run as a non-root user.
+- Не сохраняйте в репозитории credentials, закрытые ключи, токены, заполненные environment-файлы или данные клиентов.
+- Не публикуйте частную топологию инфраструктуры и environment-specific параметры доступа.
+- Аутентификация и авторизация применяются на серверной стороне и работают deny-by-default.
+- Внешний запрос не должен превращаться в произвольное выполнение shell-команды.
+- Привилегированные операции используют только типизированные allowlisted actions с явной авторизацией и Audit/evidence.
+- Runtime запускается без root-привилегий там, где они не требуются конкретной ограниченной операции.
+- Unknown, stale, expired или непроверенное evidence не отображается как Healthy/Success.
+- Перед рискованным изменением обязательны preflight, точный target/scope, критерий успеха и rollback/forward-recovery path.
+- Сетевые изменения применяются staged с проверкой связности и автоматическим rollback при потере управляемости.
 
-## Reporting
+После чистой установки локальный `admin` использует первоначальный пароль `admin`. Первый вход обязан потребовать смену пароля; до смены обычная работа запрещена. Обновление не сбрасывает установленный пользователем пароль.
 
-Do not disclose a suspected vulnerability in a public issue. Use the repository owner's private security-reporting channel when available.
+## Сообщение об уязвимости
+
+Не публикуйте сведения о предполагаемой уязвимости в открытом issue. Используйте конфиденциальный security-reporting канал владельца продукта, если он доступен.
