@@ -1,14 +1,20 @@
-# Security policy
+# Политика безопасности Control Center
 
-## Repository rules
+## Правила публичного продукта
 
-- Never commit credentials, private keys, tokens, populated environment files or customer data.
-- Never commit private infrastructure topology or environment-specific access details.
-- Authentication and authorization are enforced server-side.
-- External requests must not become arbitrary shell execution.
-- Privileged operations must use typed, allowlisted actions with explicit authorization and audit evidence.
-- Runtime images run as a non-root user.
+- Не размещайте в исходном коде, документации или release-артефактах пароли, токены, приватные ключи, заполненные environment-файлы, клиентские данные и приватную инфраструктурную топологию.
+- Аутентификация и авторизация выполняются на стороне сервера; клиентский интерфейс не является границей доверия.
+- Внешний запрос не должен превращаться в произвольное выполнение shell-команды.
+- Привилегированные операции используют только типизированные allowlisted actions с явной авторизацией, Audit/evidence и post-condition verification.
+- Неизвестное, stale, expired или неподтверждённое состояние не отображается как Healthy/Success.
+- Runtime по возможности выполняется без root; повышенные полномочия выдаются только минимально необходимому ограниченному действию.
+- Сетевые, recovery и destructive изменения должны иметь preflight, понятный риск, критерий успеха и проверяемый rollback/recovery path.
+- Секреты и чувствительные персональные данные не должны попадать в Audit, логи и диагностические evidence.
 
-## Reporting
+## Локальный администратор
 
-Do not disclose a suspected vulnerability in a public issue. Use the repository owner's private security-reporting channel when available.
+После чистой установки создаётся `admin` / `admin`. При первом входе пароль необходимо сменить, и до смены обычная работа запрещена. Обновление не сбрасывает установленный пользователем пароль.
+
+## Сообщение об уязвимости
+
+Не публикуйте сведения об уязвимости, секреты или эксплуатационные детали в открытом issue. Используйте доступный конфиденциальный канал владельца продукта для передачи достаточных сведений о воспроизведении и риске.
