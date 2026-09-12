@@ -1,14 +1,17 @@
-# Security policy
+# Политика безопасности Control Center
 
-## Repository rules
+## Правила публичного репозитория
 
-- Never commit credentials, private keys, tokens, populated environment files or customer data.
-- Never commit private infrastructure topology or environment-specific access details.
-- Authentication and authorization are enforced server-side.
-- External requests must not become arbitrary shell execution.
-- Privileged operations must use typed, allowlisted actions with explicit authorization and audit evidence.
-- Runtime images run as a non-root user.
+- Не размещайте учётные данные, токены, закрытые ключи, заполненные секретами environment-файлы и данные клиентов.
+- Не публикуйте внутреннюю топологию инфраструктуры, внутренние адреса, секреты или детали служебного доступа.
+- Аутентификация и авторизация выполняются на стороне сервера; клиент не может назначать себе дополнительные полномочия.
+- Внешний пользовательский ввод не должен превращаться в произвольное выполнение shell-команд.
+- Привилегированные операции выполняются только через типизированные разрешённые действия с явной авторизацией, Audit/evidence и проверкой результата.
+- Неизвестное, устаревшее, просроченное или непроверенное состояние обрабатывается fail-closed и не отображается как Healthy/Success.
+- Перед рискованной операцией должны быть определены цель, изменение, риск, preflight, критерий успеха и rollback/recovery-путь.
+- Runtime-компоненты работают с минимально необходимыми привилегиями; контейнерные образы не должны требовать root без обоснованной необходимости.
+- Резервная копия считается доказанной только при наличии проверяемого восстановления.
 
-## Reporting
+## Сообщение об уязвимости
 
-Do not disclose a suspected vulnerability in a public issue. Use the repository owner's private security-reporting channel when available.
+Не публикуйте подозреваемую уязвимость и чувствительные технические детали в открытом issue. Используйте конфиденциальный канал сообщения владельцу продукта, если он доступен.
