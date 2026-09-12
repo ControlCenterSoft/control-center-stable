@@ -1,0 +1,281 @@
+name: Promote Control Center 0.31.0 Public Stable A3
+
+on:
+  push:
+    branches:
+      - promotion/exact-tree-0.31.0-a3-20260913
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: promote-control-center-stable-0.31.0-a3
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.31.0
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  SOURCE_TAG: v0.31.0
+  SOURCE_TAG_SHA: c003d78f8b7aca0c8810a4267f5c95a36959fca1
+  CANDIDATE_SHA: e4fd4cb5941059cd5d77325340fc538bdf31f987
+  QUALIFICATION_RUN_ID: '34721199480'
+  QUALIFICATION_HEAD_SHA: 1a8841f5c62cc1c2420b9e5471b20449c260940b
+
+jobs:
+  promote:
+    name: Promote exact qualified 0.31.0 tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify independent Stable qualification evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > /tmp/qualification.json
+          python3 - <<'PY'
+          import json, os
+          run = json.load(open('/tmp/qualification.json', encoding='utf-8'))
+          assert run.get('status') == 'completed', run.get('status')
+          assert run.get('conclusion') == 'success', run.get('conclusion')
+          assert run.get('head_sha') == os.environ['QUALIFICATION_HEAD_SHA'], run.get('head_sha')
+          assert run.get('name') == 'Qualify Control Center Stable 0.31.0 A3', run.get('name')
+          print('INDEPENDENT_STABLE_QUALIFICATION=PASS')
+          PY
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          path: stable
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout exact qualified product candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --detach "$CANDIDATE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(tr -d '\n' < source/VERSION)" = "$VERSION"
+          git -C source fetch --quiet origin "refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG"
+          test "$(git -C source rev-list -n1 "$SOURCE_TAG")" = "$SOURCE_TAG_SHA"
+          git -C source merge-base --is-ancestor "$SOURCE_TAG_SHA" "$CANDIDATE_SHA"
+          delta="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$CANDIDATE_SHA")"
+          unexpected="$(printf '%s\n' "$delta" | grep -Ev '^(docs/QUALIFICATION_0\.31_STABLE_AUTH_HOTFIX_RU\.md|internal/identity/httpapi/server\.go|internal/identity/httpapi/web_auth_boundary_test\.go)$' || true)"
+          test -z "$unexpected" || { echo 'unexpected post-tag source delta' >&2; printf '%s\n' "$unexpected" >&2; exit 66; }
+          test "$(printf '%s\n' "$delta" | sed '/^$/d' | wc -l | tr -d ' ')" = 3
+          test ! -f source/.env
+          test ! -f source/.env.staging
+          test -f source/THIRD_PARTY_NOTICES.md
+          test -f source/third_party/manifest-0.31.json
+          cmp source/config/control-center.env.example stable/config/control-center.env.example
+          cmp source/deploy/systemd/control-center.service stable/deploy/systemd/control-center.service
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+
+      - name: Assemble public Stable tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rsync -a --delete \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/GEMINI.md' \
+            --exclude='/CONTRIBUTING.md' \
+            --exclude='/ARCHITECTURE.md' \
+            --exclude='/ROADMAP.md' \
+            --exclude='/README.md' \
+            --exclude='/docs/' \
+            --exclude='/config/' \
+            --exclude='/deploy/' \
+            --exclude='/scripts/' \
+            --exclude='/INSTALL.md' \
+            --exclude='/RELEASE_NOTES.md' \
+            --exclude='/RELEASE-MANIFEST.json' \
+            source/ stable/
+
+          rm -f stable/GEMINI.md stable/CONTRIBUTING.md
+          mkdir -p stable/docs
+          cp source/scripts/migrate.sh stable/scripts/migrate.sh
+          chmod 0755 stable/scripts/migrate.sh
+
+          cat > stable/README.md <<'EOF'
+          # Control Center 0.31.0 Stable
+
+          Control Center — самостоятельная платформа управления инфраструктурой для администраторов. Этот репозиторий является официальным публичным Stable-каналом продукта.
+
+          **Текущая стабильная версия: 0.31.0.**
+
+          Выпуск 0.31.0 добавляет основной безопасный operational workflow Changes / Jobs: точную revision изменения, semantic diff и blast radius, preflight, approval evidence, durable Job lifecycle, reconnect/cancel/retry с version-bound проверками, подтверждение результата и recovery evidence. Неизвестное, устаревшее или неполное evidence не отображается как Success.
+
+          После чистой установки создаётся локальный пользователь `admin` с первоначальным паролем `admin`. При первом входе обязательна смена пароля; обновление существующей установки не сбрасывает установленный пользователем пароль.
+
+          Документы: [установка и обновление](INSTALL.md), [примечания к выпуску](RELEASE_NOTES.md), [безопасность](SECURITY.md), [архитектура](ARCHITECTURE.md), [дорожная карта](ROADMAP.md), [манифест выпуска](RELEASE-MANIFEST.json).
+          EOF
+
+          cat > stable/INSTALL.md <<'EOF'
+          # Control Center 0.31.0 — установка и обновление
+
+          Поддерживаемая база: Linux AMD64 с systemd и PostgreSQL 15, 16, 17 или 18. При доступе из недоверенной сети требуется защищённая TLS-терминация.
+
+          ## Чистая установка
+
+          1. Скачайте `control-center-0.31.0-linux-amd64.tar.gz` и проверьте опубликованный SHA-256.
+          2. Распакуйте выпуск в отдельный каталог, например `/opt/control-center/releases/0.31.0`, и направьте `/opt/control-center/current` на него.
+          3. Создайте системную учётную запись `control-center`, рабочий каталог `/var/lib/control-center` и защищённый файл `/etc/control-center/control-center.env`.
+          4. Подготовьте PostgreSQL и примените штатный migration path. Миграции 0011 и 0012 добавляются поверх неизменяемой ранее опубликованной истории.
+          5. Установите systemd unit, запустите сервис и проверьте readiness/health.
+          6. При чистой установке войдите как `admin` / `admin` и обязательно смените пароль до обычной работы.
+
+          ## Обновление 0.30.0 → 0.31.0
+
+          1. Создайте проверяемую резервную копию PostgreSQL и конфигурации; зафиксируйте текущую версию и health.
+          2. Скачайте пакет 0.31.0 и проверьте SHA-256 до распаковки.
+          3. Распакуйте новый выпуск и примените штатные forward migrations без изменения уже опубликованных migration-файлов.
+          4. Переключите `/opt/control-center/current` на 0.31.0, запустите сервис и проверьте readiness/health.
+          5. Проверьте вход существующего администратора, сохранность пользовательского пароля и основные Changes / Jobs read/write boundaries согласно RBAC.
+          6. При неуспехе остановите эксплуатацию новой версии и используйте квалифицированный rollback/forward-recovery path с сохранённым pre-upgrade state.
+
+          Поддерживаемое обновление сохраняет пользовательские данные, настройки, Change/Job state и установленный пароль администратора; пароль не сбрасывается к `admin`.
+          EOF
+
+          cat > stable/RELEASE_NOTES.md <<'EOF'
+          # Control Center 0.31.0 Stable
+
+          Статус: **Public Stable**.
+
+          0.31.0 вводит основной безопасный operational workflow вокруг Changes и Jobs.
+
+          ## Что нового
+
+          - точная immutable revision Change, semantic diff и blast radius;
+          - execution preflight и maintenance-window evidence;
+          - approval evidence, привязанное к точной revision/hash;
+          - durable Job lifecycle и timeline;
+          - reconnect с version/ETag identity;
+          - version-bound cancel и bounded manual retry с повторной revalidation;
+          - terminal result и post-condition evidence;
+          - recovery-path evidence и защита от false Success;
+          - read-only Changes / Jobs operator view с fail-closed обработкой stale/incomplete evidence.
+
+          ## Информационная безопасность
+
+          - универсальный shell/command execution API не добавляется;
+          - stale revision, approval или Job version не принимается как current;
+          - неподтверждённый terminal result не становится Success;
+          - secrets, credentials, raw Job input/output и lease material не входят в operator evidence;
+          - браузерный auth flow сохраняет безопасный redirect/login boundary, а API продолжает возвращать машинно-читаемый 401 без HTML-редиректа;
+          - публичные source/privacy boundaries и неизменяемость ранее опубликованных migrations проверяются fail-closed.
+
+          ## Upgrade, recovery и совместимость
+
+          Независимая Stable qualification подтверждает PostgreSQL 15–18 migration/adapter paths, static/unit/contracts/build, race/restart safety, upgrade/recovery semantics и воспроизводимую Linux AMD64 упаковку. Поддерживаемое обновление с 0.30.0 сохраняет данные, настройки и установленный пароль администратора.
+
+          ## Лицензирование компонентов
+
+          Выпуск содержит machine-readable third-party manifest, лицензии зависимостей и `THIRD_PARTY_NOTICES.md`. Коммерческие договорные условия ведутся отдельно от технической квалификации продукта и не подменяются техническим release evidence.
+          EOF
+
+          cat > stable/ARCHITECTURE.md <<'EOF'
+          # Архитектура Control Center
+
+          Control Center — самостоятельный инфраструктурный продукт для администраторов.
+
+          Система разделяет Desired State и Actual State. Изменения проходят управляемый путь: Identity/RBAC → Change → exact approval → durable Job → typed execution → Actual State/post-condition verification → Audit/evidence → rollback/recovery. Произвольный shell/exec не является универсальным пользовательским API.
+
+          Changes / Jobs workflow использует immutable revision identity, semantic diff, blast radius, preflight, approval evidence, version-bound cancel/retry, подтверждение результата и recovery evidence. Unknown, Stale, Degraded и неполное evidence не могут отображаться как Healthy/Success.
+
+          Single-node является полноценным поддерживаемым режимом. Multi-node/HA заявляется только для профилей, где определены quorum, failure/recovery и upgrade-процедуры. WAN+LAN не включает routing/NAT автоматически; network mutation должна иметь staged verification и rollback.
+
+          Транзакционное состояние хранится в PostgreSQL. Backup считается доказанным только при проверяемом restore. Опубликованные migrations immutable byte-for-byte; изменение схемы выполняется только новой migration.
+
+          Чистая установка создаёт `admin` / `admin` и требует смены пароля при первом входе. Обновление не сбрасывает установленный пользователем пароль. Привилегированные действия проходят RBAC и Audit без раскрытия секретов.
+          EOF
+
+          cat > stable/ROADMAP.md <<'EOF'
+          # Control Center — продуктовая дорожная карта
+
+          Статус: **CURRENT**. Текущий официальный Public Stable — **0.31.0**.
+
+          Опубликованная основа включает Identity/RBAC/Audit, Site/Network foundation, Capacity Intelligence foundation, Session Security, recovery/network evidence freshness, Product Web Shell, Sites / Nodes / Inventory и безопасный Changes / Jobs operational workflow с approval, durable Job, verification и recovery evidence.
+
+          Следующие публичные направления: Health / Incidents / Audit / Reports; полный Identity/RBAC/Security UI; Managed Network; Node lifecycle; Recovery/HA; Market modules; Capacity automation; Mobile; затем accessibility/security/performance и production hardening до 1.0.0.
+
+          Каждый release train должен завершаться официальным Public Stable. Релиз не публикуется при release-blocking defect, false Success, нерешённой high-risk security/recovery проблеме, неподтверждённом install/upgrade/rollback path либо расхождении документации с фактическим поведением.
+          EOF
+
+          cat > stable/docs/RELEASE_0.31.0_RU.md <<'EOF'
+          # Control Center 0.31.0 — Public Stable
+
+          0.31.0 добавляет основной operational workflow Changes / Jobs с точной revision, semantic diff, blast radius, preflight, approval evidence, durable Job lifecycle, version-bound reconnect/cancel/retry, result verification и recovery evidence.
+
+          Безопасность построена fail-closed: stale/mismatched evidence не принимается как current, принятие запроса не равно подтверждённому результату, а terminal `succeeded` без корректного post-condition evidence не становится подтверждённым Success.
+
+          Поддерживаемое обновление с 0.30.0 квалифицировано с сохранением данных, настроек и установленного пароля администратора. PostgreSQL 15–18 migration/adapter paths, race/restart, rollback/forward-recovery и воспроизводимая упаковка проверены для точной promoted candidate identity.
+
+          Public Stable содержит third-party notices/license evidence. Неподтверждённые коммерческие или юридические гарантии не заявляются техническим релизом.
+          EOF
+
+          cat > stable/RELEASE-MANIFEST.json <<EOF
+          {
+            "schema": "control-center.stable-release.v2",
+            "version": "0.31.0",
+            "channel": "stable",
+            "source_tag": "$SOURCE_TAG",
+            "source_tag_commit": "$SOURCE_TAG_SHA",
+            "promoted_candidate_commit": "$CANDIDATE_SHA",
+            "qualification_run_id": $QUALIFICATION_RUN_ID,
+            "qualification_head_sha": "$QUALIFICATION_HEAD_SHA",
+            "qualification_result": "success",
+            "promotion_run_id": $GITHUB_RUN_ID
+          }
+          EOF
+
+      - name: Verify assembled Stable tree
+        shell: bash
+        working-directory: stable
+        run: |
+          set -Eeuo pipefail
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          test -f docs/RELEASE_0.31.0_RU.md
+          test -f THIRD_PARTY_NOTICES.md
+          test -f third_party/manifest-0.31.json
+          test ! -e GEMINI.md
+          test ! -e CONTRIBUTING.md
+          cmp scripts/migrate.sh ../source/scripts/migrate.sh
+          grep -q '0.31.0' README.md
+          grep -q '0.31.0' INSTALL.md
+          grep -q 'Public Stable' RELEASE_NOTES.md
+          grep -q '0.31.0' ROADMAP.md
+          grep -F "$SOURCE_TAG_SHA" RELEASE-MANIFEST.json
+          grep -F "$CANDIDATE_SHA" RELEASE-MANIFEST.json
+          if grep -RInE --include='*.md' '(Home Center|ChatGPT|Codex|Gemini|AI Development Infrastructure|AI Development Orchestrator|CI Fabric|GitHub[ -]hosted runner|control-center-development|internal IP|192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+)' README.md INSTALL.md RELEASE_NOTES.md ROADMAP.md ARCHITECTURE.md docs; then
+            echo 'internal development material detected in public documentation' >&2
+            exit 1
+          fi
+          make fmt-check
+          go vet ./...
+          go test ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+          SOURCE_DATE_EPOCH="$(git -C ../source show -s --format=%ct "$CANDIDATE_SHA")" COMMIT="$CANDIDATE_SHA" bash scripts/build-release.sh
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+
+      - name: Commit exact qualified Stable tree to main
+        shell: bash
+        working-directory: stable
+        run: |
+          set -Eeuo pipefail
+          rm -rf dist
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "release: promote Control Center 0.31.0 public stable tree"
+          git push origin HEAD:main
