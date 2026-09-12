@@ -82,17 +82,53 @@ curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --ma
   --output "$artifact" "$release_url/$artifact"
 curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 60 \
   --output "$checksum" "$release_url/$checksum"
-sha256sum -c "$checksum"
-tar -xzf "$artifact"
+
+mapfile -t checksum_lines < "$checksum"
+[[ ${#checksum_lines[@]} -eq 1 ]] || fail "release checksum sidecar must contain exactly one record"
+read -r expected_digest expected_name extra <<< "${checksum_lines[0]}"
+expected_name="${expected_name#\*}"
+[[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || fail "release checksum sidecar contains an invalid digest"
+[[ "$expected_name" == "$artifact" && -z "${extra:-}" ]] || fail "release checksum sidecar names an unexpected artifact"
+actual_digest="$(sha256sum "$artifact")"
+actual_digest="${actual_digest%% *}"
+[[ "$actual_digest" == "$expected_digest" ]] || fail "release artifact checksum mismatch"
+
+python3 - "$artifact" "control-center-$latest_version" <<'PY' \
+  || fail "release archive contains an unsafe entry"
+import sys
+import tarfile
+from pathlib import PurePosixPath
+
+archive, root = sys.argv[1:]
+with tarfile.open(archive, mode="r:gz") as stream:
+    members = stream.getmembers()
+    if not members:
+        raise SystemExit("empty release archive")
+    for member in members:
+        name = member.name
+        path = PurePosixPath(name)
+        if name.startswith("/") or not path.parts or path.parts[0] != root or ".." in path.parts:
+            raise SystemExit(f"unsafe archive path: {name}")
+        if member.issym() or member.islnk():
+            raise SystemExit(f"archive links are not allowed: {name}")
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f"unsupported archive member type: {name}")
+PY
+
+tar --no-same-owner --no-same-permissions -xzf "$artifact"
 
 source_dir="$workdir/control-center-$latest_version"
-[[ -x "$source_dir/bin/control-center" ]] || fail "release payload is missing bin/control-center"
-[[ -x "$source_dir/scripts/migrate.sh" ]] || fail "release payload is missing scripts/migrate.sh"
-[[ -d "$source_dir/migrations" ]] || fail "release payload is missing migrations"
-[[ -f "$source_dir/deploy/systemd/control-center.service" ]] || fail "release payload is missing systemd unit"
-[[ -r "$source_dir/VERSION" ]] || fail "release payload is missing VERSION"
-[[ -r "$source_dir/REVISION" ]] || fail "release payload is missing REVISION"
-[[ -r "$source_dir/RELEASE-MANIFEST.json" ]] || fail "release payload is missing RELEASE-MANIFEST.json"
+[[ -x "$source_dir/bin/control-center" && -f "$source_dir/bin/control-center" && ! -L "$source_dir/bin/control-center" ]] \
+  || fail "release payload is missing regular bin/control-center"
+[[ -x "$source_dir/scripts/migrate.sh" && -f "$source_dir/scripts/migrate.sh" && ! -L "$source_dir/scripts/migrate.sh" ]] \
+  || fail "release payload is missing regular scripts/migrate.sh"
+[[ -d "$source_dir/migrations" && ! -L "$source_dir/migrations" ]] || fail "release payload is missing regular migrations directory"
+[[ -f "$source_dir/deploy/systemd/control-center.service" && ! -L "$source_dir/deploy/systemd/control-center.service" ]] \
+  || fail "release payload is missing regular systemd unit"
+[[ -r "$source_dir/VERSION" && -f "$source_dir/VERSION" && ! -L "$source_dir/VERSION" ]] || fail "release payload is missing regular VERSION"
+[[ -r "$source_dir/REVISION" && -f "$source_dir/REVISION" && ! -L "$source_dir/REVISION" ]] || fail "release payload is missing regular REVISION"
+[[ -r "$source_dir/RELEASE-MANIFEST.json" && -f "$source_dir/RELEASE-MANIFEST.json" && ! -L "$source_dir/RELEASE-MANIFEST.json" ]] \
+  || fail "release payload is missing regular RELEASE-MANIFEST.json"
 payload_version="$(tr -d '[:space:]' < "$source_dir/VERSION")"
 [[ "$payload_version" == "$latest_version" ]] || fail "release payload VERSION does not match repository VERSION"
 payload_revision="$(tr -d '[:space:]' < "$source_dir/REVISION")"
