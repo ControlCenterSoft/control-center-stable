@@ -10,10 +10,36 @@ if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 2
 fi
 
+command -v python3 >/dev/null 2>&1 || { printf 'python3 is required to bind release identity\n' >&2; exit 2; }
+manifest_commit="$(python3 - RELEASE-MANIFEST.json "$version" <<'PY'
+import json
+import re
+import sys
+
+path, version = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+commit = data.get("source_commit")
+if data.get("schema") != "control-center.stable-release.v1":
+    raise SystemExit("invalid release manifest schema")
+if data.get("channel") != "stable":
+    raise SystemExit("invalid release manifest channel")
+if data.get("version") != version or data.get("source_tag") != f"v{version}":
+    raise SystemExit("release manifest version/tag mismatch")
+if re.fullmatch(r"[0-9a-f]{40}", commit or "") is None:
+    raise SystemExit("invalid release manifest source_commit")
+print(commit)
+PY
+)"
+
 go_binary="${GO_BINARY:-go}"
-commit="${COMMIT:-$(git rev-parse HEAD 2>/dev/null || printf unknown)}"
+commit="${COMMIT:-$manifest_commit}"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'invalid COMMIT: %s\n' "$commit" >&2
+  exit 2
+fi
+if [[ "$commit" != "$manifest_commit" ]]; then
+  printf 'COMMIT does not match RELEASE-MANIFEST source_commit: %s != %s\n' "$commit" "$manifest_commit" >&2
   exit 2
 fi
 source_date_epoch="${SOURCE_DATE_EPOCH:-$(git show -s --format=%ct HEAD 2>/dev/null || printf 0)}"
