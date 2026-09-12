@@ -36,11 +36,14 @@ jobs:
           git -C source fetch --quiet origin "refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG"
           test "$(git -C source rev-list -n1 "$SOURCE_TAG")" = "$SOURCE_TAG_SHA"
           git -C source merge-base --is-ancestor "$SOURCE_TAG_SHA" "$CANDIDATE_SHA"
-          unexpected="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$CANDIDATE_SHA" | grep -Ev '^(internal/api/http.go|internal/api/http_test.go|internal/auth/session_manager.go)$' || true)"
+          unexpected="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$CANDIDATE_SHA" | grep -Ev '^(docs/QUALIFICATION_0\.31_STABLE_AUTH_HOTFIX_RU\.md|internal/identity/httpapi/server\.go|internal/identity/httpapi/web_auth_boundary_test\.go)$' || true)"
           test -z "$unexpected" || { echo "unexpected post-tag delta:" >&2; printf '%s\n' "$unexpected" >&2; exit 66; }
+          actual_count="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$CANDIDATE_SHA" | wc -l | tr -d ' ')"
+          test "$actual_count" = 3 || { echo "post-tag lineage must contain exactly the qualified three-file auth hotfix delta" >&2; exit 66; }
           test ! -f source/.env
           test ! -f source/.env.staging
           test -f source/docs/RELEASE_0.31.0_RU.md
+          test -f source/docs/QUALIFICATION_0.31_STABLE_AUTH_HOTFIX_RU.md
       - name: Scan public source boundary
         shell: bash
         run: |
