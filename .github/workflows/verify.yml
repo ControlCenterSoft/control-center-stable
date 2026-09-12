@@ -84,6 +84,8 @@ jobs:
           version="$(tr -d '\n' < VERSION)"
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
           (cd dist && sha256sum -c "control-center-${version}-linux-amd64.tar.gz.sha256")
+          revision="$(tar -xOf "dist/control-center-${version}-linux-amd64.tar.gz" "control-center-${version}/REVISION" | tr -d '\r\n')"
+          [[ "$revision" == "$GITHUB_SHA" ]]
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
