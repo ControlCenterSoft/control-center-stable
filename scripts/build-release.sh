@@ -51,14 +51,27 @@ cp README.md INSTALL.md RELEASE_NOTES.md SECURITY.md ARCHITECTURE.md ROADMAP.md 
 printf '%s\n' "$commit" > "$stage/$bundle/REVISION"
 cp -a api/. "$stage/$bundle/api/"
 cp config/control-center.env.example "$stage/$bundle/config/"
-cp deploy/systemd/control-center.service "$stage/$bundle/deploy/systemd/"
+cp deploy/systemd/control-center.service \
+  deploy/systemd/control-center-auto-update.service \
+  deploy/systemd/control-center-auto-update.timer \
+  "$stage/$bundle/deploy/systemd/"
 find migrations -maxdepth 1 -type f \( -name '*.sql' -o -name 'README.md' \) \
   -exec cp {} "$stage/$bundle/migrations/" \;
-cp scripts/migrate.sh "$stage/$bundle/scripts/"
+cp scripts/migrate.sh \
+  scripts/configure-public-https.sh \
+  scripts/stable-auto-update.sh \
+  scripts/install-stable-auto-update.sh \
+  scripts/verify-stable-auto-update.sh \
+  "$stage/$bundle/scripts/"
 if [[ -d docs ]]; then
   cp -a docs/. "$stage/$bundle/docs/"
 fi
-chmod 0755 "$stage/$bundle/bin/control-center" "$stage/$bundle/scripts/migrate.sh"
+chmod 0755 "$stage/$bundle/bin/control-center" \
+  "$stage/$bundle/scripts/migrate.sh" \
+  "$stage/$bundle/scripts/configure-public-https.sh" \
+  "$stage/$bundle/scripts/stable-auto-update.sh" \
+  "$stage/$bundle/scripts/install-stable-auto-update.sh" \
+  "$stage/$bundle/scripts/verify-stable-auto-update.sh"
 
 artifact="$dist_dir/$bundle-linux-amd64.tar.gz"
 tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 \
