@@ -12,6 +12,10 @@ fi
 
 go_binary="${GO_BINARY:-go}"
 commit="${COMMIT:-$(git rev-parse HEAD 2>/dev/null || printf unknown)}"
+if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'invalid COMMIT: %s\n' "$commit" >&2
+  exit 2
+fi
 source_date_epoch="${SOURCE_DATE_EPOCH:-$(git show -s --format=%ct HEAD 2>/dev/null || printf 0)}"
 if [[ ! "$source_date_epoch" =~ ^[0-9]+$ ]]; then
   printf 'invalid SOURCE_DATE_EPOCH\n' >&2
@@ -44,6 +48,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_binary" build \
 
 cp README.md INSTALL.md RELEASE_NOTES.md SECURITY.md ARCHITECTURE.md ROADMAP.md \
   VERSION RELEASE-MANIFEST.json "$stage/$bundle/"
+printf '%s\n' "$commit" > "$stage/$bundle/REVISION"
 cp -a api/. "$stage/$bundle/api/"
 cp config/control-center.env.example "$stage/$bundle/config/"
 cp deploy/systemd/control-center.service "$stage/$bundle/deploy/systemd/"
