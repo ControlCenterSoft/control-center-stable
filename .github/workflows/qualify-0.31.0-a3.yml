@@ -1,0 +1,202 @@
+name: Qualify Control Center Stable 0.31.0 A3
+
+on:
+  push:
+    branches:
+      - qualification/stable-0.31.0-a3-20260913
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualify-control-center-stable-0.31.0-a3
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.31.0
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  SOURCE_TAG: v0.31.0
+  SOURCE_TAG_SHA: c003d78f8b7aca0c8810a4267f5c95a36959fca1
+  CANDIDATE_SHA: e4fd4cb5941059cd5d77325340fc538bdf31f987
+
+jobs:
+  provenance-safety:
+    name: Provenance, source lineage and public safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact qualified product tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --detach "$CANDIDATE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(tr -d '\n' < source/VERSION)" = "$VERSION"
+          git -C source fetch --quiet origin "refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG"
+          test "$(git -C source rev-list -n1 "$SOURCE_TAG")" = "$SOURCE_TAG_SHA"
+          git -C source merge-base --is-ancestor "$SOURCE_TAG_SHA" "$CANDIDATE_SHA"
+          unexpected="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$CANDIDATE_SHA" | grep -Ev '^(internal/api/http.go|internal/api/http_test.go|internal/auth/session_manager.go)$' || true)"
+          test -z "$unexpected" || { echo "unexpected post-tag delta:" >&2; printf '%s\n' "$unexpected" >&2; exit 66; }
+          test ! -f source/.env
+          test ! -f source/.env.staging
+          test -f source/docs/RELEASE_0.31.0_RU.md
+      - name: Scan public source boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -RInE --exclude-dir=.git --exclude='*.sum' --exclude='ci.yml' '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|sk-(proj-)?[A-Za-z0-9_-]{24,})' source; then
+            echo 'public-safety scan detected credential-like material' >&2
+            exit 1
+          fi
+
+  static-unit-build:
+    name: Format, vet, unit, contracts and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - run: git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source && git -C source checkout --detach "$CANDIDATE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Verify and test
+        working-directory: source
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          make fmt-check
+          go vet ./...
+          go test ./...
+          go build -trimpath -buildvcs=false ./cmd/control-center
+
+  postgres:
+    name: PostgreSQL ${{ matrix.postgres }} migration/adapters
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        postgres: ['15', '16', '17', '18']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - run: git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source && git -C source checkout --detach "$CANDIDATE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Migrations including supported upgrades
+        working-directory: source
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          go test ./migrations -count=1 -v
+      - name: Verify PostgreSQL adapters and restart recovery
+        working-directory: source
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./internal/persistence/postgres -run '^TestPostgres' -count=1 -v
+
+  race:
+    name: Race detector and restart safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - run: git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source && git -C source checkout --detach "$CANDIDATE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Install schema and run race detector
+        working-directory: source
+        env:
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: |
+          set -Eeuo pipefail
+          go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
+          go test -race -count=1 ./...
+
+  reproducible-package:
+    name: Reproducible Linux package and checksum
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: [provenance-safety, static-unit-build]
+    steps:
+      - run: git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source && git -C source checkout --detach "$CANDIDATE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Build deterministic distribution twice
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$CANDIDATE_SHA"
+          epoch="$(git -C source show -s --format=%ct HEAD)"
+          for n in 1 2; do
+            stage="stage-$n/control-center-$VERSION"
+            mkdir -p "$stage/bin" "$stage/api" "$stage/migrations"
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -C source -trimpath -buildvcs=false -o "../$stage/bin/control-center" ./cmd/control-center
+            cp source/README.md source/SECURITY.md source/ARCHITECTURE.md source/ROADMAP.md source/VERSION "$stage/"
+            cp -a source/api/. "$stage/api/"
+            find source/migrations -maxdepth 1 -type f \( -name '*.sql' -o -name 'README.md' \) -exec cp {} "$stage/migrations/" \;
+            tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "stage-$n" -czf "control-center-$VERSION-$n-linux-amd64.tar.gz" "control-center-$VERSION"
+          done
+          cmp "control-center-$VERSION-1-linux-amd64.tar.gz" "control-center-$VERSION-2-linux-amd64.tar.gz"
+          mv "control-center-$VERSION-1-linux-amd64.tar.gz" "control-center-$VERSION-linux-amd64.tar.gz"
+          sha256sum "control-center-$VERSION-linux-amd64.tar.gz" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          printf '{"schema":"control-center.stable-qualification.v2","version":"%s","source_tag":"%s","source_tag_commit":"%s","candidate_commit":"%s","result":"qualified-package-candidate"}\n' "$VERSION" "$SOURCE_TAG" "$SOURCE_TAG_SHA" "$CANDIDATE_SHA" > qualification.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-stable-0.31.0-qualification-${{ github.run_id }}
+          path: |
+            control-center-0.31.0-linux-amd64.tar.gz
+            SHA256SUMS
+            qualification.json
+          if-no-files-found: error
+          retention-days: 7
+
+  qualification-gate:
+    name: Stable qualification gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [provenance-safety, static-unit-build, postgres, race, reproducible-package]
+    steps:
+      - run: echo "Control Center $VERSION candidate $CANDIDATE_SHA passed independent Public Stable qualification; source tag $SOURCE_TAG remains immutable at $SOURCE_TAG_SHA."
