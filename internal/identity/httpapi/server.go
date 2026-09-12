@@ -69,9 +69,9 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /login", s.webLogin)
 	s.mux.HandleFunc("POST /web/login", s.webLoginSubmit)
-	s.mux.Handle("GET /password/change", s.Authenticate(http.HandlerFunc(s.webPasswordChange)))
-	s.mux.Handle("POST /web/password/change", s.Authenticate(http.HandlerFunc(s.webPasswordChangeSubmit)))
-	s.mux.Handle("GET /overview", s.Authenticate(s.Require(rbac.PermissionOverviewRead, rbac.GlobalScope())(http.HandlerFunc(s.webOverview))))
+	s.mux.Handle("GET /password/change", s.AuthenticateWeb(http.HandlerFunc(s.webPasswordChange)))
+	s.mux.Handle("POST /web/password/change", s.AuthenticateWeb(http.HandlerFunc(s.webPasswordChangeSubmit)))
+	s.mux.Handle("GET /overview", s.AuthenticateWeb(s.RequireWeb(rbac.PermissionOverviewRead, rbac.GlobalScope())(http.HandlerFunc(s.webOverview))))
 	s.mux.HandleFunc("POST /web/logout", s.webLogout)
 }
 
@@ -112,6 +112,28 @@ func (s *Server) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
+// AuthenticateWeb is the browser-only authentication boundary. Unlike API
+// authentication it never exposes a JSON error envelope to an HTML route.
+// Invalid or expired browser sessions are cleared and redirected to login.
+func (s *Server) AuthenticateWeb(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(s.cookieName)
+		if err != nil || strings.TrimSpace(cookie.Value) == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		token := cookie.Value
+		authenticated, err := s.auth.Authenticate(r.Context(), token)
+		if err != nil {
+			s.clearSessionCookie(w)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		principal := Principal{Token: token, Session: authenticated.Session, Identity: authenticated.Identity, PasswordChangeRequired: authenticated.PasswordChangeRequired}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, principal)))
+	})
+}
+
 func (s *Server) Require(permission rbac.Permission, scope rbac.Scope) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +151,34 @@ func (s *Server) Require(permission rbac.Permission, scope rbac.Scope) func(http
 					SourceIP: remoteIP(r), Details: map[string]any{"permission": permission, "scope": scope},
 				})
 				writeError(w, r, http.StatusForbidden, "permission_denied", "Permission denied")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireWeb preserves browser navigation semantics while keeping the API
+// authorization contract unchanged. First-login users are sent directly to
+// the mandatory password-change form; permission denials remain non-JSON.
+func (s *Server) RequireWeb(permission rbac.Permission, scope rbac.Scope) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			principal, ok := PrincipalFromContext(r.Context())
+			if !ok {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
+			if principal.PasswordChangeRequired {
+				http.Redirect(w, r, "/password/change", http.StatusSeeOther)
+				return
+			}
+			if !s.authorizer.Allowed(principal.Identity.ID, permission, scope) {
+				_ = s.audit.Append(r.Context(), audit.Event{
+					Action: "authorization.check", Outcome: "denied", ActorID: principal.Identity.ID,
+					SourceIP: remoteIP(r), Details: map[string]any{"permission": permission, "scope": scope},
+				})
+				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
