@@ -2,8 +2,7 @@
 set -Eeuo pipefail
 
 readonly REPOSITORY="ControlCenterSoft/control-center-stable"
-readonly RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/main"
-readonly RELEASE_BASE="https://github.com/${REPOSITORY}/releases/download"
+readonly RELEASE_API="https://api.github.com/repos/${REPOSITORY}/releases/latest"
 readonly INSTALL_ROOT="/opt/control-center"
 readonly CURRENT_LINK="${INSTALL_ROOT}/current"
 readonly ENV_FILE="/etc/control-center/control-center.env"
@@ -48,23 +47,6 @@ if [[ -r "$CURRENT_LINK/VERSION" ]]; then
 fi
 [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "cannot determine installed stable version"
 
-latest_version="$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 "$RAW_BASE/VERSION" | tr -d '[:space:]')"
-[[ "$latest_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "stable repository returned an invalid VERSION: $latest_version"
-
-if [[ "$latest_version" == "$current_version" ]]; then
-  log "already current: $current_version"
-  exit 0
-fi
-
-highest_version="$(printf '%s\n%s\n' "$current_version" "$latest_version" | sort -V | tail -n 1)"
-if [[ "$highest_version" != "$latest_version" ]]; then
-  log "stable repository advertises $latest_version but installed version is $current_version; refusing automatic downgrade"
-  exit 0
-fi
-
-artifact="control-center-${latest_version}-linux-amd64.tar.gz"
-checksum="${artifact}.sha256"
-release_url="${RELEASE_BASE}/v${latest_version}"
 workdir="$(mktemp -d /tmp/control-center-auto-update.XXXXXX)"
 previous_target="$(readlink -f "$CURRENT_LINK")"
 previous_unit_backup=""
@@ -76,12 +58,73 @@ cleanup() {
 }
 trap cleanup EXIT
 
+release_json="$workdir/latest-release.json"
+curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  --output "$release_json" "$RELEASE_API"
+
+release_identity="$(python3 - "$release_json" <<'PY')" || fail "latest public Stable metadata validation failed"
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    data = json.load(stream)
+if not isinstance(data, dict) or data.get("draft") is not False or data.get("prerelease") is not False:
+    raise SystemExit("latest release is not public Stable")
+tag = data.get("tag_name")
+match = re.fullmatch(r"v([0-9]+\.[0-9]+\.[0-9]+)", tag or "")
+if match is None:
+    raise SystemExit("invalid stable release tag")
+version = match.group(1)
+artifact_name = f"control-center-{version}-linux-amd64.tar.gz"
+checksum_name = artifact_name + ".sha256"
+assets = data.get("assets")
+if not isinstance(assets, list):
+    raise SystemExit("release assets are missing")
+by_name = {}
+for asset in assets:
+    if isinstance(asset, dict) and isinstance(asset.get("name"), str):
+        by_name.setdefault(asset["name"], []).append(asset)
+if len(by_name.get(artifact_name, [])) != 1 or len(by_name.get(checksum_name, [])) != 1:
+    raise SystemExit("release must contain exactly one runtime artifact and checksum sidecar")
+artifact = by_name[artifact_name][0]
+checksum = by_name[checksum_name][0]
+prefix = f"https://github.com/ControlCenterSoft/control-center-stable/releases/download/v{version}/"
+artifact_url = artifact.get("browser_download_url")
+checksum_url = checksum.get("browser_download_url")
+if artifact_url != prefix + artifact_name or checksum_url != prefix + checksum_name:
+    raise SystemExit("release asset URL is outside the canonical stable path")
+digest = artifact.get("digest")
+digest_match = re.fullmatch(r"sha256:([0-9a-f]{64})", digest or "")
+if digest_match is None:
+    raise SystemExit("runtime artifact has no canonical GitHub sha256 digest")
+print("\t".join((version, artifact_url, checksum_url, digest_match.group(1))))
+PY
+IFS=$'\t' read -r latest_version artifact_url checksum_url api_digest <<< "$release_identity"
+[[ "$latest_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "validated release returned an invalid VERSION"
+[[ "$api_digest" =~ ^[0-9a-f]{64}$ ]] || fail "validated release returned an invalid artifact digest"
+
+if [[ "$latest_version" == "$current_version" ]]; then
+  log "already current: $current_version"
+  exit 0
+fi
+
+highest_version="$(printf '%s\n%s\n' "$current_version" "$latest_version" | sort -V | tail -n 1)"
+if [[ "$highest_version" != "$latest_version" ]]; then
+  log "public Stable is $latest_version but installed version is $current_version; refusing automatic downgrade"
+  exit 0
+fi
+
+artifact="control-center-${latest_version}-linux-amd64.tar.gz"
+checksum="${artifact}.sha256"
 log "update available: $current_version -> $latest_version"
 cd "$workdir"
 curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 300 \
-  --output "$artifact" "$release_url/$artifact"
+  --output "$artifact" "$artifact_url"
 curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 60 \
-  --output "$checksum" "$release_url/$checksum"
+  --output "$checksum" "$checksum_url"
 
 mapfile -t checksum_lines < "$checksum"
 [[ ${#checksum_lines[@]} -eq 1 ]] || fail "release checksum sidecar must contain exactly one record"
@@ -89,6 +132,7 @@ read -r expected_digest expected_name extra <<< "${checksum_lines[0]}"
 expected_name="${expected_name#\*}"
 [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || fail "release checksum sidecar contains an invalid digest"
 [[ "$expected_name" == "$artifact" && -z "${extra:-}" ]] || fail "release checksum sidecar names an unexpected artifact"
+[[ "$expected_digest" == "$api_digest" ]] || fail "GitHub artifact digest and checksum sidecar disagree"
 actual_digest="$(sha256sum "$artifact")"
 actual_digest="${actual_digest%% *}"
 [[ "$actual_digest" == "$expected_digest" ]] || fail "release artifact checksum mismatch"
@@ -100,6 +144,7 @@ import tarfile
 from pathlib import PurePosixPath
 
 archive, root = sys.argv[1:]
+seen = set()
 with tarfile.open(archive, mode="r:gz") as stream:
     members = stream.getmembers()
     if not members:
@@ -107,6 +152,9 @@ with tarfile.open(archive, mode="r:gz") as stream:
     for member in members:
         name = member.name
         path = PurePosixPath(name)
+        if name in seen:
+            raise SystemExit(f"duplicate archive member: {name}")
+        seen.add(name)
         if name.startswith("/") or not path.parts or path.parts[0] != root or ".." in path.parts:
             raise SystemExit(f"unsafe archive path: {name}")
         if member.issym() or member.islnk():
@@ -130,7 +178,7 @@ source_dir="$workdir/control-center-$latest_version"
 [[ -r "$source_dir/RELEASE-MANIFEST.json" && -f "$source_dir/RELEASE-MANIFEST.json" && ! -L "$source_dir/RELEASE-MANIFEST.json" ]] \
   || fail "release payload is missing regular RELEASE-MANIFEST.json"
 payload_version="$(tr -d '[:space:]' < "$source_dir/VERSION")"
-[[ "$payload_version" == "$latest_version" ]] || fail "release payload VERSION does not match repository VERSION"
+[[ "$payload_version" == "$latest_version" ]] || fail "release payload VERSION does not match public Stable tag"
 payload_revision="$(tr -d '[:space:]' < "$source_dir/REVISION")"
 [[ "$payload_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release payload contains an invalid REVISION"
 python3 - "$source_dir/RELEASE-MANIFEST.json" "$latest_version" "$payload_revision" <<'PY' \
@@ -145,10 +193,12 @@ if data.get("schema") != "control-center.stable-release.v1":
     raise SystemExit("unexpected release manifest schema")
 if data.get("channel") != "stable":
     raise SystemExit("release manifest channel is not stable")
-if data.get("version") != version:
-    raise SystemExit("release manifest version mismatch")
+if data.get("version") != version or data.get("source_tag") != f"v{version}":
+    raise SystemExit("release manifest version/tag mismatch")
 if data.get("source_commit") != revision:
     raise SystemExit("release manifest source commit mismatch")
+if data.get("qualification_result") != "success" or data.get("promotion_result") != "success":
+    raise SystemExit("release manifest qualification/promotion is not successful")
 PY
 
 backup_stamp="$(date -u +'%Y%m%dT%H%M%SZ')"
