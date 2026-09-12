@@ -8,5 +8,7 @@
   "qualification_run_id": 34721199480,
   "qualification_head_sha": "1a8841f5c62cc1c2420b9e5471b20449c260940b",
   "qualification_result": "success",
-  "promotion_run_id": 34721411186
+  "promotion_run_id": 34721411186,
+  "promotion_tree_commit": "31b4c0edb397e101f06321aa787a40995ad551a8",
+  "promotion_result": "success"
 }
