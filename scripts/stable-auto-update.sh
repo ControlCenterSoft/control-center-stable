@@ -25,7 +25,7 @@ fail() {
 
 [[ ${EUID:-$(id -u)} -eq 0 ]] || fail "must run as root"
 
-for command_name in curl sha256sum tar systemctl systemd-run pg_dump sort flock readlink install mktemp; do
+for command_name in curl sha256sum tar systemctl systemd-run pg_dump sort flock readlink install mktemp python3; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 
@@ -91,8 +91,29 @@ source_dir="$workdir/control-center-$latest_version"
 [[ -d "$source_dir/migrations" ]] || fail "release payload is missing migrations"
 [[ -f "$source_dir/deploy/systemd/control-center.service" ]] || fail "release payload is missing systemd unit"
 [[ -r "$source_dir/VERSION" ]] || fail "release payload is missing VERSION"
+[[ -r "$source_dir/REVISION" ]] || fail "release payload is missing REVISION"
+[[ -r "$source_dir/RELEASE-MANIFEST.json" ]] || fail "release payload is missing RELEASE-MANIFEST.json"
 payload_version="$(tr -d '[:space:]' < "$source_dir/VERSION")"
 [[ "$payload_version" == "$latest_version" ]] || fail "release payload VERSION does not match repository VERSION"
+payload_revision="$(tr -d '[:space:]' < "$source_dir/REVISION")"
+[[ "$payload_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release payload contains an invalid REVISION"
+python3 - "$source_dir/RELEASE-MANIFEST.json" "$latest_version" "$payload_revision" <<'PY' \
+  || fail "release manifest does not bind the target version and revision"
+import json
+import sys
+
+path, version, revision = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+if data.get("schema") != "control-center.stable-release.v1":
+    raise SystemExit("unexpected release manifest schema")
+if data.get("channel") != "stable":
+    raise SystemExit("release manifest channel is not stable")
+if data.get("version") != version:
+    raise SystemExit("release manifest version mismatch")
+if data.get("source_commit") != revision:
+    raise SystemExit("release manifest source commit mismatch")
+PY
 
 backup_stamp="$(date -u +'%Y%m%dT%H%M%SZ')"
 backup_file="$BACKUP_DIR/pre-${current_version}-to-${latest_version}-${backup_stamp}.dump"
@@ -114,8 +135,11 @@ systemd-run --quiet --wait --pipe --collect \
 install_dir="$INSTALL_ROOT/$latest_version"
 if [[ -e "$install_dir" ]]; then
   [[ -r "$install_dir/VERSION" ]] || fail "existing install directory is incomplete: $install_dir"
+  [[ -r "$install_dir/REVISION" ]] || fail "existing install directory has no revision identity: $install_dir"
   existing_version="$(tr -d '[:space:]' < "$install_dir/VERSION")"
+  existing_revision="$(tr -d '[:space:]' < "$install_dir/REVISION")"
   [[ "$existing_version" == "$latest_version" ]] || fail "existing install directory contains a different version"
+  [[ "$existing_revision" == "$payload_revision" ]] || fail "existing install directory contains a different revision"
 else
   install -d -o root -g root -m 0755 "$install_dir"
   cp -a "$source_dir/." "$install_dir/"
@@ -189,6 +213,7 @@ fi
 
 cat > "$STATE_DIR/last-success.env" <<STATE
 VERSION=$latest_version
+REVISION=$payload_revision
 PREVIOUS_VERSION=$current_version
 UPDATED_AT_UTC=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 BACKUP_FILE=$backup_file
