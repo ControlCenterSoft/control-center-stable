@@ -141,15 +141,16 @@ jobs:
           go-version-file: source/go.mod
           cache-dependency-path: source/go.sum
           cache: true
-      - name: Install schema and run race detector
+      - name: Install current schema for race tests
         working-directory: source
         env:
           MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
+      - name: Run race detector with PostgreSQL adapters
+        working-directory: source
+        env:
           TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
-        run: |
-          set -Eeuo pipefail
-          go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
-          go test -race -count=1 ./...
+        run: go test -race -count=1 ./...
 
   reproducible-package:
     name: Reproducible Linux package and checksum
