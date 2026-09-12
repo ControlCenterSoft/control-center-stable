@@ -1,0 +1,222 @@
+name: Apply web authentication boundary
+
+on:
+  push:
+    branches: ["fix/web-auth-boundary"]
+    paths: [".github/workflows/apply-web-auth-boundary.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Apply architectural web/API authentication split
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          server = Path('internal/identity/httpapi/server.go')
+          text = server.read_text(encoding='utf-8')
+
+          old_routes = '''\ts.mux.Handle("GET /password/change", s.Authenticate(http.HandlerFunc(s.webPasswordChange)))
+          \ts.mux.Handle("POST /web/password/change", s.Authenticate(http.HandlerFunc(s.webPasswordChangeSubmit)))
+          \ts.mux.Handle("GET /overview", s.Authenticate(s.Require(rbac.PermissionOverviewRead, rbac.GlobalScope())(http.HandlerFunc(s.webOverview))))'''
+          new_routes = '''\ts.mux.Handle("GET /password/change", s.AuthenticateWeb(http.HandlerFunc(s.webPasswordChange)))
+          \ts.mux.Handle("POST /web/password/change", s.AuthenticateWeb(http.HandlerFunc(s.webPasswordChangeSubmit)))
+          \ts.mux.Handle("GET /overview", s.AuthenticateWeb(s.RequireWeb(rbac.PermissionOverviewRead, rbac.GlobalScope())(http.HandlerFunc(s.webOverview))))'''
+          if old_routes not in text:
+              raise SystemExit('expected web route block not found')
+          text = text.replace(old_routes, new_routes, 1)
+
+          auth_anchor = '''func (s *Server) Authenticate(next http.Handler) http.Handler {
+          \treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+          \t\ttoken := s.tokenFromRequest(r)
+          \t\tauthenticated, err := s.auth.Authenticate(r.Context(), token)
+          \t\tif err != nil {
+          \t\t\twriteError(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required")
+          \t\t\treturn
+          \t\t}
+          \t\tprincipal := Principal{Token: token, Session: authenticated.Session, Identity: authenticated.Identity, PasswordChangeRequired: authenticated.PasswordChangeRequired}
+          \t\tnext.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, principal)))
+          \t})
+          }
+          '''
+          web_auth = '''
+          // AuthenticateWeb is the browser-only authentication boundary. Unlike API
+          // authentication it never exposes a JSON error envelope to an HTML route.
+          // Invalid or expired browser sessions are cleared and redirected to login.
+          func (s *Server) AuthenticateWeb(next http.Handler) http.Handler {
+          \treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+          \t\tcookie, err := r.Cookie(s.cookieName)
+          \t\tif err != nil || strings.TrimSpace(cookie.Value) == "" {
+          \t\t\thttp.Redirect(w, r, "/login", http.StatusSeeOther)
+          \t\t\treturn
+          \t\t}
+          \t\ttoken := cookie.Value
+          \t\tauthenticated, err := s.auth.Authenticate(r.Context(), token)
+          \t\tif err != nil {
+          \t\t\ts.clearSessionCookie(w)
+          \t\t\thttp.Redirect(w, r, "/login", http.StatusSeeOther)
+          \t\t\treturn
+          \t\t}
+          \t\tprincipal := Principal{Token: token, Session: authenticated.Session, Identity: authenticated.Identity, PasswordChangeRequired: authenticated.PasswordChangeRequired}
+          \t\tnext.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, principal)))
+          \t})
+          }
+          '''
+          if auth_anchor not in text:
+              raise SystemExit('Authenticate anchor not found')
+          text = text.replace(auth_anchor, auth_anchor + web_auth, 1)
+
+          require_anchor = '''func (s *Server) Require(permission rbac.Permission, scope rbac.Scope) func(http.Handler) http.Handler {
+          \treturn func(next http.Handler) http.Handler {
+          \t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+          \t\t\tprincipal, ok := PrincipalFromContext(r.Context())
+          \t\t\tif !ok {
+          \t\t\t\twriteError(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required")
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\tif s.rejectPasswordChangeRequired(w, r, principal) {
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\tif !s.authorizer.Allowed(principal.Identity.ID, permission, scope) {
+          \t\t\t\t_ = s.audit.Append(r.Context(), audit.Event{
+          \t\t\t\t\tAction: "authorization.check", Outcome: "denied", ActorID: principal.Identity.ID,
+          \t\t\t\t\tSourceIP: remoteIP(r), Details: map[string]any{"permission": permission, "scope": scope},
+          \t\t\t\t})
+          \t\t\t\twriteError(w, r, http.StatusForbidden, "permission_denied", "Permission denied")
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\tnext.ServeHTTP(w, r)
+          \t\t})
+          \t}
+          }
+          '''
+          web_require = '''
+          // RequireWeb preserves browser navigation semantics while keeping the API
+          // authorization contract unchanged. First-login users are sent directly to
+          // the mandatory password-change form; permission denials remain non-JSON.
+          func (s *Server) RequireWeb(permission rbac.Permission, scope rbac.Scope) func(http.Handler) http.Handler {
+          \treturn func(next http.Handler) http.Handler {
+          \t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+          \t\t\tprincipal, ok := PrincipalFromContext(r.Context())
+          \t\t\tif !ok {
+          \t\t\t\thttp.Redirect(w, r, "/login", http.StatusSeeOther)
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\tif principal.PasswordChangeRequired {
+          \t\t\t\thttp.Redirect(w, r, "/password/change", http.StatusSeeOther)
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\tif !s.authorizer.Allowed(principal.Identity.ID, permission, scope) {
+          \t\t\t\t_ = s.audit.Append(r.Context(), audit.Event{
+          \t\t\t\t\tAction: "authorization.check", Outcome: "denied", ActorID: principal.Identity.ID,
+          \t\t\t\t\tSourceIP: remoteIP(r), Details: map[string]any{"permission": permission, "scope": scope},
+          \t\t\t\t})
+          \t\t\t\thttp.Error(w, "Forbidden", http.StatusForbidden)
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\tnext.ServeHTTP(w, r)
+          \t\t})
+          \t}
+          }
+          '''
+          if require_anchor not in text:
+              raise SystemExit('Require anchor not found')
+          text = text.replace(require_anchor, require_anchor + web_require, 1)
+          server.write_text(text, encoding='utf-8')
+
+          tests = Path('internal/identity/httpapi/server_test.go')
+          test_text = tests.read_text(encoding='utf-8')
+          marker = 'func TestWebAuthenticationBoundaryRedirectsBrowserAndPreservesAPI401'
+          if marker not in test_text:
+              test_text += r'''
+
+          func TestWebAuthenticationBoundaryRedirectsBrowserAndPreservesAPI401(t *testing.T) {
+          	f := newHTTPFixture(t)
+          	for _, path := range []string{"/overview", "/password/change"} {
+          		request := httptest.NewRequest(http.MethodGet, path, nil)
+          		result := httptest.NewRecorder()
+          		f.server.ServeHTTP(result, request)
+          		if result.Code != http.StatusSeeOther {
+          			t.Fatalf("%s status=%d body=%s", path, result.Code, result.Body.String())
+          		}
+          		if location := result.Header().Get("Location"); location != "/login" {
+          			t.Fatalf("%s location=%q", path, location)
+          		}
+          		if strings.Contains(result.Body.String(), "authentication_required") {
+          			t.Fatalf("%s exposed API authentication envelope to browser", path)
+          		}
+          	}
+
+          	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/system/overview", nil)
+          	apiResult := httptest.NewRecorder()
+          	f.server.ServeHTTP(apiResult, apiRequest)
+          	if apiResult.Code != http.StatusUnauthorized || !strings.Contains(apiResult.Body.String(), "authentication_required") {
+          		t.Fatalf("API auth contract changed: status=%d body=%s", apiResult.Code, apiResult.Body.String())
+          	}
+          }
+
+          func TestWebAuthenticationBoundaryHandlesValidAndFirstLoginSessions(t *testing.T) {
+          	f := newHTTPFixture(t)
+          	viewerCookie := f.login(t, "viewer")
+          	viewerRequest := httptest.NewRequest(http.MethodGet, "/overview", nil)
+          	viewerRequest.AddCookie(viewerCookie)
+          	viewerResult := httptest.NewRecorder()
+          	f.server.ServeHTTP(viewerResult, viewerRequest)
+          	if viewerResult.Code != http.StatusOK {
+          		t.Fatalf("viewer overview status=%d body=%s", viewerResult.Code, viewerResult.Body.String())
+          	}
+
+          	loginBody := strings.NewReader(`{"username":"admin","password":"admin"}`)
+          	loginRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", loginBody)
+          	loginRequest.Header.Set("Content-Type", "application/json")
+          	loginResult := httptest.NewRecorder()
+          	f.server.ServeHTTP(loginResult, loginRequest)
+          	if loginResult.Code != http.StatusOK {
+          		t.Fatalf("admin login status=%d body=%s", loginResult.Code, loginResult.Body.String())
+          	}
+          	cookies := loginResult.Result().Cookies()
+          	if len(cookies) != 1 {
+          		t.Fatalf("admin login cookies=%d", len(cookies))
+          	}
+          	adminOverview := httptest.NewRequest(http.MethodGet, "/overview", nil)
+          	adminOverview.AddCookie(cookies[0])
+          	adminOverviewResult := httptest.NewRecorder()
+          	f.server.ServeHTTP(adminOverviewResult, adminOverview)
+          	if adminOverviewResult.Code != http.StatusSeeOther || adminOverviewResult.Header().Get("Location") != "/password/change" {
+          		t.Fatalf("first-login overview status=%d location=%q body=%s", adminOverviewResult.Code, adminOverviewResult.Header().Get("Location"), adminOverviewResult.Body.String())
+          	}
+          }
+          '''
+              tests.write_text(test_text, encoding='utf-8')
+          PY
+
+          gofmt -w internal/identity/httpapi/server.go internal/identity/httpapi/server_test.go
+          git diff --check
+          go test ./...
+
+      - name: Commit verified change
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "ControlCenterSoft"
+          git config user.email "40738562+ControlCenterSoft@users.noreply.github.com"
+          git add internal/identity/httpapi/server.go internal/identity/httpapi/server_test.go
+          git commit -m "fix(auth): separate browser and API authentication boundaries"
+          git push origin HEAD:fix/web-auth-boundary
