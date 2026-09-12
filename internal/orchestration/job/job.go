@@ -13,6 +13,7 @@ var (
 	ErrNotFound            = errors.New("job not found")
 	ErrLeaseLost           = errors.New("job lease lost")
 	ErrIdempotencyConflict = errors.New("idempotency key already represents different input")
+	ErrVersionConflict     = errors.New("job version conflict")
 )
 
 type Status string
@@ -82,4 +83,12 @@ type Repository interface {
 	Succeed(context.Context, string, string, events.Output, time.Time) (Job, error)
 	Fail(context.Context, string, string, string, events.Output, RetryPolicy, time.Time) (Job, error)
 	RequestCancel(context.Context, string, time.Time) (Job, error)
+}
+
+// VersionedCancellationRepository is the optimistic-concurrency boundary for
+// operator-driven cancellation. Callers bind a cancellation decision to the
+// exact Job version that was reviewed instead of mutating whichever state is
+// current when the request arrives.
+type VersionedCancellationRepository interface {
+	RequestCancelIfVersion(context.Context, string, uint64, time.Time) (Job, error)
 }

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/release-security-privacy-evidence-v1.schema.json",
+  "title": "Control Center 0.31 security/privacy release evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "candidate_version",
+    "candidate_sha",
+    "disposition",
+    "audit_evidence_digest",
+    "no_secret_boundary_reviewed",
+    "rbac_scopes_reviewed",
+    "stale_replay_idempotency_reviewed",
+    "audit_integrity_reviewed",
+    "recovery_semantics_reviewed",
+    "data_minimization_reviewed",
+    "error_evidence_redaction_reviewed",
+    "production_authority_unchanged",
+    "critical_security_findings_closed",
+    "critical_privacy_findings_closed",
+    "snapshot_digest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "control-center.release-security-privacy-evidence.v1"
+    },
+    "candidate_version": {
+      "const": "0.31.0"
+    },
+    "candidate_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "blocked",
+        "approved"
+      ]
+    },
+    "audit_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "no_secret_boundary_reviewed": {
+      "type": "boolean"
+    },
+    "rbac_scopes_reviewed": {
+      "type": "boolean"
+    },
+    "stale_replay_idempotency_reviewed": {
+      "type": "boolean"
+    },
+    "audit_integrity_reviewed": {
+      "type": "boolean"
+    },
+    "recovery_semantics_reviewed": {
+      "type": "boolean"
+    },
+    "data_minimization_reviewed": {
+      "type": "boolean"
+    },
+    "error_evidence_redaction_reviewed": {
+      "type": "boolean"
+    },
+    "production_authority_unchanged": {
+      "type": "boolean"
+    },
+    "critical_security_findings_closed": {
+      "type": "boolean"
+    },
+    "critical_privacy_findings_closed": {
+      "type": "boolean"
+    },
+    "snapshot_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

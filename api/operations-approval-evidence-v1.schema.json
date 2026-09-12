@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-approval-evidence-v1.schema.json",
+  "title": "Control Center Operations Approval Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "change_id",
+    "revision_id",
+    "revision_digest",
+    "policy_id",
+    "risk",
+    "state",
+    "required_count",
+    "recorded_count",
+    "eligible_count",
+    "satisfied",
+    "distinct_actors",
+    "prohibit_requester",
+    "observed_at",
+    "eligible_approvals"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-approval-evidence/v1"
+    },
+    "change_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "policy_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "state": {
+      "type": "string",
+      "enum": ["denied", "not_required", "pending", "satisfied"]
+    },
+    "required_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 256
+    },
+    "recorded_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 256
+    },
+    "eligible_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 256
+    },
+    "satisfied": {
+      "type": "boolean"
+    },
+    "distinct_actors": {
+      "type": "boolean"
+    },
+    "prohibit_requester": {
+      "type": "boolean"
+    },
+    "required_permission": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "observed_at": {
+      "$ref": "#/$defs/utc_time"
+    },
+    "eligible_approvals": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/approval"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "utc_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "approved_at"],
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/identifier"
+        },
+        "approved_at": {
+          "$ref": "#/$defs/utc_time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+CREATE TABLE IF NOT EXISTS cc_job_manual_retry_lineage (
+    reviewed_admission_id      text        PRIMARY KEY,
+    request_fingerprint        text        NOT NULL,
+    revalidation_admission_id  text        NOT NULL,
+    root_job_id                text        NOT NULL REFERENCES cc_jobs(id),
+    source_job_id              text        NOT NULL REFERENCES cc_jobs(id),
+    source_job_version         bigint      NOT NULL CHECK (source_job_version > 0),
+    retry_job_id               text        NOT NULL UNIQUE REFERENCES cc_jobs(id),
+    retry_idempotency_key      text        NOT NULL UNIQUE,
+    revision_id                text        NOT NULL,
+    revision_digest            text        NOT NULL,
+    policy_id                  text        NOT NULL,
+    policy_digest              text        NOT NULL,
+    retry_history_digest       text        NOT NULL,
+    approval_evidence_digest   text,
+    requested_at               timestamptz NOT NULL,
+    UNIQUE (source_job_id, source_job_version),
+    CHECK (root_job_id <> retry_job_id),
+    CHECK (source_job_id <> retry_job_id),
+    CHECK (char_length(root_job_id) BETWEEN 1 AND 255),
+    CHECK (char_length(source_job_id) BETWEEN 1 AND 255),
+    CHECK (char_length(retry_job_id) BETWEEN 1 AND 255),
+    CHECK (char_length(retry_idempotency_key) BETWEEN 1 AND 255),
+    CHECK (char_length(revision_id) BETWEEN 1 AND 255),
+    CHECK (char_length(policy_id) BETWEEN 1 AND 255),
+    CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'),
+    CHECK (revision_digest ~ '^sha256:[0-9a-f]{64}$'),
+    CHECK (policy_digest ~ '^sha256:[0-9a-f]{64}$'),
+    CHECK (retry_history_digest ~ '^sha256:[0-9a-f]{64}$'),
+    CHECK (reviewed_admission_id ~ '^sha256:[0-9a-f]{64}$'),
+    CHECK (revalidation_admission_id ~ '^sha256:[0-9a-f]{64}$'),
+    CHECK (approval_evidence_digest IS NULL OR approval_evidence_digest ~ '^sha256:[0-9a-f]{64}$')
+);
+
+CREATE INDEX IF NOT EXISTS cc_job_manual_retry_root_idx
+    ON cc_job_manual_retry_lineage (root_job_id, requested_at, retry_job_id);

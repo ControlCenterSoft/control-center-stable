@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-semantic-diff-v1.schema.json",
+  "title": "Control Center Operations Semantic Diff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "base_revision_id",
+    "target_revision_id",
+    "base_sequence",
+    "target_sequence",
+    "base_digest",
+    "target_digest",
+    "changes"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-semantic-diff/v1"
+    },
+    "base_revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "target_revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "base_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "base_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "target_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/change"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^/"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["added", "removed", "changed"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/release-candidate-artifacts-v1.schema.json",
+  "title": "Control Center 0.31 release candidate artifacts v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "candidate_version",
+    "candidate_sha",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "control-center.release-candidate-artifacts.v1"
+    },
+    "candidate_version": {
+      "const": "0.31.0"
+    },
+    "candidate_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "digest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "control-center-0.31.0-linux-amd64.tar.gz",
+            "control-center-0.31.0-linux-amd64.tar.gz.sha256",
+            "control-center-0.31.0-source.tar.gz",
+            "control-center-0.31.0.provenance.json",
+            "control-center-0.31.0.qualification.json",
+            "control-center-0.31.0.release-manifest.json",
+            "SHA256SUMS"
+          ]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -1,9 +1,9 @@
 # Control Center — продуктовая дорожная карта
 
-Статус: **CURRENT**. Текущий официальный Public Stable — **0.30.0**.
+Статус: **CURRENT**. Текущий официальный Public Stable — **0.31.0**.
 
-Опубликованная основа включает Identity/RBAC/Audit, Changes/Jobs, lifecycle/recovery contracts, Site/Network foundation, Capacity Intelligence foundation, Session Security Policy, bounded Audit access, recovery/network evidence freshness, Product Web Shell / Overview v2 и read-only Sites / Nodes / Inventory.
+Опубликованная основа включает Identity/RBAC/Audit, Site/Network foundation, Capacity Intelligence foundation, Session Security, recovery/network evidence freshness, Product Web Shell, Sites / Nodes / Inventory и безопасный Changes / Jobs operational workflow с approval, durable Job, verification и recovery evidence.
 
-Следующие публичные продуктовые направления: дальнейшие Web UI экраны Changes/Jobs, Health/Audit и Security; Managed Network с multi-NIC/WAN/LAN/VLAN/bonding/routing/DNS/NTP/firewall и staged rollback; Recovery Points/PITR/object-level recovery/restore drills; развитие Capacity Planner; версионируемые Market-модули с compatibility, permissions, lifecycle и license/compliance metadata.
+Следующие публичные направления: Health / Incidents / Audit / Reports; полный Identity/RBAC/Security UI; Managed Network; Node lifecycle; Recovery/HA; Market modules; Capacity automation; Mobile; затем accessibility/security/performance и production hardening до 1.0.0.
 
-Следующий Stable не публикуется при release-blocking defect, отсутствии проверяемого acceptance, неопределённом install/upgrade/recovery path, расхождении документации с кодом либо нерешённой high-risk security/recovery проблеме.
+Каждый release train должен завершаться официальным Public Stable. Релиз не публикуется при release-blocking defect, false Success, нерешённой high-risk security/recovery проблеме, неподтверждённом install/upgrade/rollback path либо расхождении документации с фактическим поведением.

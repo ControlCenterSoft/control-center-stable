@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-job-retry-admission-v1.schema.json",
+  "title": "Control Center operations Job retry admission evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "admission_id",
+    "job_id",
+    "job_version",
+    "change_id",
+    "action_name",
+    "revision_id",
+    "revision_digest",
+    "source_status",
+    "source_attempt",
+    "source_max_attempts",
+    "source_already_retried",
+    "policy_id",
+    "policy_digest",
+    "retry_history_digest",
+    "retry_history_observed_at",
+    "used_manual_retries",
+    "max_manual_retries",
+    "requires_fresh_approval",
+    "state",
+    "blockers",
+    "observed_at"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-job-retry-admission/v1"
+    },
+    "admission_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "job_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "change_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "action_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "revision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "revision_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_status": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "retry_wait",
+        "cancel_requested",
+        "cancelled",
+        "succeeded",
+        "failed"
+      ]
+    },
+    "source_attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_already_retried": {
+      "type": "boolean"
+    },
+    "policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "policy_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "retry_history_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "retry_history_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "used_manual_retries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_manual_retries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requires_fresh_approval": {
+      "type": "boolean"
+    },
+    "approval_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["eligible", "blocked"]
+    },
+    "blockers": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "source_not_failed",
+          "source_already_retried",
+          "policy_denies_retry",
+          "manual_retry_budget_exhausted",
+          "fresh_approval_required"
+        ]
+      }
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

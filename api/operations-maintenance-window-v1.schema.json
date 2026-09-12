@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-maintenance-window-v1.schema.json",
+  "title": "Control Center Operations Maintenance Window Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "change_id",
+    "revision_id",
+    "revision_digest",
+    "required",
+    "evaluated_at",
+    "state",
+    "execution_authorized",
+    "production_mutation_allowed"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-maintenance-window/v1"
+    },
+    "change_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "window": {
+      "$ref": "#/$defs/window"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["not_required", "scheduled", "open", "expired"]
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "production_mutation_allowed": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "required": {"const": true}
+        },
+        "required": ["required"]
+      },
+      "then": {
+        "required": ["window"],
+        "properties": {
+          "state": {
+            "enum": ["scheduled", "open", "expired"]
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": ["window"]
+        },
+        "properties": {
+          "state": {"const": "not_required"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["starts_at", "ends_at"],
+      "properties": {
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

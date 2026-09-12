@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-job-manual-retry-lineage-v1.schema.json",
+  "title": "Control Center operations Job manual retry lineage v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "root_job_id",
+    "source_job_id",
+    "source_job_version",
+    "retry_job_id",
+    "reviewed_admission_id",
+    "revalidation_admission_id",
+    "revision_id",
+    "revision_digest",
+    "policy_id",
+    "policy_digest",
+    "retry_history_digest",
+    "requested_at"
+  ],
+  "properties": {
+    "root_job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "source_job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "source_job_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "retry_job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "reviewed_admission_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "revalidation_admission_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "revision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "revision_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "policy_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "retry_history_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "approval_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

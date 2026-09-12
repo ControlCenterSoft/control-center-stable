@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-blast-radius-v1.schema.json",
+  "title": "Control Center Operations Blast Radius v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "change_id",
+    "revision_id",
+    "revision_digest",
+    "observed_at",
+    "resource_count",
+    "direct_count",
+    "dependency_count",
+    "resources"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-blast-radius/v1"
+    },
+    "change_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "resource_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 256
+    },
+    "direct_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 256
+    },
+    "dependency_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 256
+    },
+    "resources": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/resource"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_id", "kind", "relation", "reason_code"],
+      "properties": {
+        "resource_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "$ref": "#/$defs/kind"
+        },
+        "relation": {
+          "type": "string",
+          "enum": ["direct", "dependency"]
+        },
+        "reason_code": {
+          "$ref": "#/$defs/reason_code"
+        }
+      }
+    }
+  }
+}

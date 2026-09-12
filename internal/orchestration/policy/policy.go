@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,9 @@ type ApprovalRequirement struct {
 func (r ApprovalRequirement) Validate() error {
 	if r.Minimum < 0 {
 		return errors.New("minimum approvals cannot be negative")
+	}
+	if r.Permission != strings.TrimSpace(r.Permission) {
+		return errors.New("approval permission must be canonical")
 	}
 	if r.Minimum > 0 && r.Permission == "" {
 		return errors.New("approval permission is required")
@@ -113,10 +117,17 @@ func CheckApprovals(requester string, requirement ApprovalRequirement, approvals
 	if err := requirement.Validate(); err != nil {
 		return err
 	}
+	if requirement.ProhibitRequester {
+		trimmedRequester := strings.TrimSpace(requester)
+		if trimmedRequester == "" || requester != trimmedRequester {
+			return errors.New("canonical requester is required for requester-prohibited approval policy")
+		}
+	}
 	seen := make(map[string]struct{}, len(approvals))
 	valid := 0
 	for _, approval := range approvals {
-		if approval.Actor == "" || approval.ApprovedAt.IsZero() {
+		trimmedActor := strings.TrimSpace(approval.Actor)
+		if trimmedActor == "" || approval.Actor != trimmedActor || approval.ApprovedAt.IsZero() {
 			continue
 		}
 		if requirement.ProhibitRequester && approval.Actor == requester {

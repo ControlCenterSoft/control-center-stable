@@ -2,32 +2,12 @@
 
 Control Center — самостоятельный инфраструктурный продукт для администраторов.
 
-## Основные принципы
+Система разделяет Desired State и Actual State. Изменения проходят управляемый путь: Identity/RBAC → Change → exact approval → durable Job → typed execution → Actual State/post-condition verification → Audit/evidence → rollback/recovery. Произвольный shell/exec не является универсальным пользовательским API.
 
-Система разделяет Desired State и Actual State. Изменения проходят управляемый путь: Identity/RBAC → план изменения → подтверждение → Job → выполнение → повторное чтение фактического состояния → проверка → Audit/evidence → rollback или recovery при необходимости. Административные полномочия deny-by-default; произвольный shell/exec не является универсальным пользовательским API.
+Changes / Jobs workflow использует immutable revision identity, semantic diff, blast radius, preflight, approval evidence, version-bound cancel/retry, подтверждение результата и recovery evidence. Unknown, Stale, Degraded и неполное evidence не могут отображаться как Healthy/Success.
 
-Интерфейсы чтения фактического состояния работают fail-closed: отсутствующее, устаревшее, просроченное или непроверенное evidence не преобразуется в Healthy/Success.
+Single-node является полноценным поддерживаемым режимом. Multi-node/HA заявляется только для профилей, где определены quorum, failure/recovery и upgrade-процедуры. WAN+LAN не включает routing/NAT автоматически; network mutation должна иметь staged verification и rollback.
 
-## Развёртывание и роли
+Транзакционное состояние хранится в PostgreSQL. Backup считается доказанным только при проверяемом restore. Опубликованные migrations immutable byte-for-byte; изменение схемы выполняется только новой migration.
 
-Single-node является полноценным поддерживаемым режимом. Multi-node/HA применяется только там, где определены quorum, failure/recovery и upgrade-процедуры. Один физический сервер может совмещать роли при достаточной ёмкости и соблюдении требований отказоустойчивости.
-
-## Сеть
-
-Поддерживается multi-NIC модель с явными ролями интерфейсов и зон. WAN+LAN сам по себе не включает routing, NAT или port-forwarding. Сетевые изменения должны выполняться staged: план → preflight → подтверждение → применение → connectivity validation → commit либо автоматический rollback.
-
-## Данные, backup и recovery
-
-Транзакционное состояние хранится в PostgreSQL. Backup считается доказанным только при наличии проверяемого restore. Для stateful-сервисов обязательны специализированные backup/recovery процедуры; HA не считается поддержанным без failure/recovery испытаний.
-
-## Lifecycle и обновления
-
-Maintenance, drain, replacement и decommission учитывают зависимости, capacity reserve, redundancy/quorum и сохранность данных. Обновление выполняется с preflight, совместимостью, backup/recovery prerequisites, health-check после каждого шага и rollback/forward-recovery. В multi-node профилях применяется безопасный rolling-порядок.
-
-## Аутентификация и аудит
-
-Чистая установка создаёт `admin` / `admin`; первый вход требует обязательной смены пароля. Обновление не сбрасывает установленный пользователем пароль. Опасная операция показывает цель, изменение, риск, зависимости, preflight, критерий успеха и recovery path; привилегированные действия фиксируются в Audit без раскрытия секретов.
-
-## Capacity Planner и Market
-
-Capacity Planner использует CPU/RAM/storage/network/DB/workload-данные для safe capacity, bottleneck, прогнозов и placement/what-if рекомендаций. Market-модули имеют версионируемые manifests, dependencies/conflicts, permissions, network/storage/capacity requirements, lifecycle и проверяемую license/compliance metadata.
+Чистая установка создаёт `admin` / `admin` и требует смены пароля при первом входе. Обновление не сбрасывает установленный пользователем пароль. Привилегированные действия проходят RBAC и Audit без раскрытия секретов.

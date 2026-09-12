@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-recovery-path-v1.schema.json",
+  "title": "Control Center Operations Recovery Path Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "change_id",
+    "revision_id",
+    "revision_digest",
+    "recovery_point_id",
+    "recovery_point_state",
+    "backup_count",
+    "verified_backup_count",
+    "verification_outcome",
+    "evaluated_at",
+    "state",
+    "execution_authorized",
+    "production_mutation_allowed"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-recovery-path/v1"
+    },
+    "change_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "recovery_point_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "recovery_point_state": {
+      "type": "string",
+      "enum": ["CREATING", "READY", "PARTIAL", "FAILED", "EXPIRED"]
+    },
+    "backup_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "verified_backup_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "verification_outcome": {
+      "type": "string",
+      "enum": ["PENDING", "PASSED", "FAILED"]
+    },
+    "verification_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["ready", "blocked", "expired"]
+    },
+    "block_reason": {
+      "type": "string",
+      "enum": [
+        "recovery_point_not_ready",
+        "backup_not_verified",
+        "restore_not_verified",
+        "evidence_expired"
+      ]
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "production_mutation_allowed": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verification_outcome": {"const": "PASSED"}
+        },
+        "required": ["verification_outcome"]
+      },
+      "then": {
+        "required": ["verification_observed_at"],
+        "properties": {
+          "backup_count": {"minimum": 1}
+        }
+      },
+      "else": {
+        "not": {
+          "required": ["verification_observed_at"]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {"const": "ready"}
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "not": {
+          "required": ["block_reason"]
+        },
+        "properties": {
+          "recovery_point_state": {"const": "READY"},
+          "verification_outcome": {"const": "PASSED"},
+          "backup_count": {"minimum": 1}
+        }
+      },
+      "else": {
+        "required": ["block_reason"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {"const": "expired"}
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "block_reason": {"const": "evidence_expired"}
+        }
+      },
+      "else": {
+        "properties": {
+          "block_reason": {
+            "enum": [
+              "recovery_point_not_ready",
+              "backup_not_verified",
+              "restore_not_verified"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

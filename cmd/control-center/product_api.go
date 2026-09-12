@@ -25,6 +25,7 @@ import (
 type productHandlerConfig struct {
 	lifecycleProjection     nodelifecycle.Projection
 	infrastructureInventory productui.InfrastructureInventoryProvider
+	changesJobs             productui.ChangesJobsProvider
 }
 
 type productHandlerOption func(*productHandlerConfig)
@@ -45,6 +46,18 @@ func withInfrastructureInventoryProvider(provider productui.InfrastructureInvent
 	return func(config *productHandlerConfig) {
 		if provider != nil {
 			config.infrastructureInventory = provider
+		}
+	}
+}
+
+// withChangesJobsProvider wires the bounded operational Changes / Jobs read
+// model only when an authoritative persisted-state provider is available. The
+// default runtime leaves the endpoint absent instead of presenting synthetic or
+// transitional orchestration state as current evidence.
+func withChangesJobsProvider(provider productui.ChangesJobsProvider) productHandlerOption {
+	return func(config *productHandlerConfig) {
+		if provider != nil {
+			config.changesJobs = provider
 		}
 	}
 }
@@ -94,6 +107,9 @@ func newProductHandler(identity *identityapi.Server, options ...productHandlerOp
 	if config.infrastructureInventory != nil {
 		mux.Handle("GET /api/v1/ui/infrastructure", guard(rbac.PermissionResourcesRead, uiapi.InfrastructureHandler(config.infrastructureInventory)))
 		mux.Handle("GET /infrastructure", guard(rbac.PermissionResourcesRead, infrastructureWebHandler(config.infrastructureInventory)))
+	}
+	if config.changesJobs != nil {
+		mux.Handle("GET /api/v1/ui/changes-jobs", guard(rbac.PermissionJobsRead, uiapi.ChangesJobsHandler(config.changesJobs)))
 	}
 	return mux
 }

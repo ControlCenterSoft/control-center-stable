@@ -83,12 +83,19 @@ func newOrchestrationHandler(identity *identityapi.Server, db *sql.DB, middlewar
 	if err != nil {
 		return nil, worker.Worker{}, err
 	}
+	versionBoundRepository, err := newVersionBoundJobRepository(repository)
+	if err != nil {
+		return nil, worker.Worker{}, err
+	}
 	state, err := postgres.NewOrchestrationState(db)
 	if err != nil {
 		return nil, worker.Worker{}, err
 	}
 	server, err := orchestrationapi.New(orchestrationapi.Config{
-		Registry: registry, Jobs: repository, Persistence: state, Middleware: middleware,
+		Registry: registry, Jobs: versionBoundRepository, Persistence: state,
+		Middleware: func(next http.Handler) http.Handler {
+			return middleware(jobReconnectETagMiddleware(versionBoundCancellationMiddleware(next)))
+		},
 		Evaluator: policy.ThresholdEvaluator{
 			PolicyID: "baseline-v1", ApprovalPermission: string(rbac.PermissionChangesApprove),
 		},

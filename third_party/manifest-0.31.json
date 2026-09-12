@@ -1,0 +1,96 @@
+{
+  "schema": "control-center.third-party-manifest.v1",
+  "product_version": "0.31.0",
+  "components": [
+    {
+      "module": "go-runtime",
+      "version": "1.23.12",
+      "scope": "runtime-toolchain",
+      "source": "https://github.com/golang/go/tree/go1.23.12",
+      "purl": "pkg:golang/stdlib@1.23.12",
+      "license_spdx": "BSD-3-Clause",
+      "license_file": "third_party/licenses/Go-stdlib-BSD-3-Clause.txt",
+      "license_sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
+    },
+    {
+      "module": "golang.org/x/crypto",
+      "version": "v0.37.0",
+      "scope": "runtime",
+      "source": "https://github.com/golang/crypto/tree/v0.37.0",
+      "purl": "pkg:golang/golang.org/x/crypto@v0.37.0",
+      "license_spdx": "BSD-3-Clause",
+      "license_file": "third_party/licenses/Go-x-BSD-3-Clause.txt",
+      "license_sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "module": "github.com/jackc/pgx/v5",
+      "version": "v5.7.6",
+      "scope": "runtime",
+      "source": "https://github.com/jackc/pgx/tree/v5.7.6",
+      "purl": "pkg:golang/github.com/jackc/pgx/v5@v5.7.6",
+      "license_spdx": "MIT",
+      "license_file": "third_party/licenses/pgx-MIT.txt",
+      "license_sha256": "467f95e074fe23079a5623ed652619682692041b8551da27e3c2ddb9659a1507"
+    },
+    {
+      "module": "github.com/jackc/pgpassfile",
+      "version": "v1.0.0",
+      "scope": "runtime-transitive",
+      "source": "https://github.com/jackc/pgpassfile/tree/v1.0.0",
+      "purl": "pkg:golang/github.com/jackc/pgpassfile@v1.0.0",
+      "license_spdx": "MIT",
+      "license_file": "third_party/licenses/pgpassfile-MIT.txt",
+      "license_sha256": "adb1663fda031df8f4344aa68f299fd87d80353e31339406742ded21dae65702"
+    },
+    {
+      "module": "github.com/jackc/pgservicefile",
+      "version": "v0.0.0-20240606120523-5a60cdf6a761",
+      "scope": "runtime-transitive",
+      "source": "https://github.com/jackc/pgservicefile/tree/5a60cdf6a761",
+      "purl": "pkg:golang/github.com/jackc/pgservicefile@v0.0.0-20240606120523-5a60cdf6a761",
+      "license_spdx": "MIT",
+      "license_file": "third_party/licenses/pgservicefile-MIT.txt",
+      "license_sha256": "fc505773403fe869ed64cc2235cdd13988a427bb7e3a7e7004a3f4b27420f8fc"
+    },
+    {
+      "module": "github.com/jackc/puddle/v2",
+      "version": "v2.2.2",
+      "scope": "runtime-transitive",
+      "source": "https://github.com/jackc/puddle/tree/v2.2.2",
+      "purl": "pkg:golang/github.com/jackc/puddle/v2@v2.2.2",
+      "license_spdx": "MIT",
+      "license_file": "third_party/licenses/puddle-MIT.txt",
+      "license_sha256": "2d50e98a4900b4d6457a38d39c1432fdc156fc2f7b365f2e33ec9344acbb0057"
+    },
+    {
+      "module": "golang.org/x/sync",
+      "version": "v0.13.0",
+      "scope": "runtime-transitive",
+      "source": "https://github.com/golang/sync/tree/v0.13.0",
+      "purl": "pkg:golang/golang.org/x/sync@v0.13.0",
+      "license_spdx": "BSD-3-Clause",
+      "license_file": "third_party/licenses/Go-x-BSD-3-Clause.txt",
+      "license_sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "module": "golang.org/x/sys",
+      "version": "v0.32.0",
+      "scope": "runtime-transitive",
+      "source": "https://github.com/golang/sys/tree/v0.32.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.32.0",
+      "license_spdx": "BSD-3-Clause",
+      "license_file": "third_party/licenses/Go-x-BSD-3-Clause.txt",
+      "license_sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "module": "golang.org/x/text",
+      "version": "v0.24.0",
+      "scope": "runtime-transitive",
+      "source": "https://github.com/golang/text/tree/v0.24.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.24.0",
+      "license_spdx": "BSD-3-Clause",
+      "license_file": "third_party/licenses/Go-x-BSD-3-Clause.txt",
+      "license_sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    }
+  ]
+}

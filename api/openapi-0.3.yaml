@@ -92,7 +92,14 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: Durable job state and outputs
+          description: Durable job state and outputs. The strong ETag contains the exact persisted Job version to use after reconnect/reload and as the reviewed precondition for a later bounded mutation.
+          headers:
+            ETag:
+              description: Exact durable Job version as a strong quoted decimal ETag.
+              schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+            Cache-Control:
+              description: Job operational evidence must not be cached by shared or local HTTP caches.
+              schema: { type: string, const: no-store }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Job' }
@@ -106,12 +113,27 @@ paths:
           in: path
           required: true
           schema: { type: string }
+        - name: If-Match
+          in: header
+          required: true
+          description: Exact positive durable Job version reviewed by the operator. Decimal and quoted decimal ETag forms are accepted; wildcard, weak, list and zero versions are rejected.
+          schema:
+            type: string
+            pattern: '^"?[1-9][0-9]*"?$'
       responses:
         '202':
-          description: Cancellation accepted or job already terminal
+          description: Cancellation accepted or exact-version terminal replay accepted. The ETag header contains the resulting durable Job version.
+          headers:
+            ETag:
+              description: Resulting durable Job version as a strong quoted decimal ETag.
+              schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Job' }
+        '400': { description: Invalid Job version precondition }
+        '404': { description: Job not found }
+        '412': { description: Job changed after the reviewed version; reload before retrying }
+        '428': { description: Job version precondition is required }
         default: { $ref: '#/components/responses/APIError' }
 components:
   securitySchemes:
@@ -161,7 +183,7 @@ components:
         jobId: { type: string }
     Job:
       type: object
-      required: [id, changeId, actionName, status, attempt, maxAttempts, createdAt, updatedAt]
+      required: [id, changeId, actionName, status, attempt, maxAttempts, version, createdAt, updatedAt]
       properties:
         id: { type: string }
         changeId: { type: string }
@@ -171,6 +193,9 @@ components:
           enum: [queued, running, retry_wait, cancel_requested, cancelled, succeeded, failed]
         attempt: { type: integer, minimum: 0 }
         maxAttempts: { type: integer, minimum: 1 }
+        version: { type: integer, format: int64, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
         nextAttemptAt: { type: string, format: date-time }
         lastError: { type: string }
         output: { $ref: '#/components/schemas/ActionOutput' }

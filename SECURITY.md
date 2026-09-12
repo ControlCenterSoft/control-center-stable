@@ -1,16 +1,14 @@
-# Политика безопасности
+# Security policy
 
-## Правила публикации и эксплуатации
+## Repository rules
 
-- Не сохраняйте в репозитории credentials, private keys, tokens, заполненные environment-файлы или данные клиентов.
-- Не публикуйте частную топологию инфраструктуры, внутренние адреса и environment-specific параметры доступа.
-- Аутентификация и авторизация всегда проверяются на серверной стороне.
-- Внешний запрос не должен превращаться в произвольное shell/exec-выполнение.
-- Привилегированные операции выполняются только через типизированные allowlisted actions с явной authorization и Audit evidence.
-- Runtime запускается с минимально необходимыми привилегиями; контейнерные runtime images не должны работать от root без отдельного обоснованного контракта.
-- Unknown/Stale/Degraded/Unavailable состояния не должны отображаться как Healthy или Success.
-- После чистой установки `admin/admin` используется только для bootstrap: первый вход обязан потребовать смену пароля, а обновление не должно сбрасывать установленный пользователем пароль.
+- Never commit credentials, private keys, tokens, populated environment files or customer data.
+- Never commit private infrastructure topology or environment-specific access details.
+- Authentication and authorization are enforced server-side.
+- External requests must not become arbitrary shell execution.
+- Privileged operations must use typed, allowlisted actions with explicit authorization and audit evidence.
+- Runtime images run as a non-root user.
 
-## Сообщение об уязвимости
+## Reporting
 
-Не раскрывайте подозреваемую уязвимость, секреты, персональные данные или эксплуатационные детали в публичном issue. Используйте конфиденциальный канал security-reporting владельца продукта, если он доступен.
+Do not disclose a suspected vulnerability in a public issue. Use the repository owner's private security-reporting channel when available.

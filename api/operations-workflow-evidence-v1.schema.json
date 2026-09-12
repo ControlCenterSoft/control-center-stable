@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/operations-workflow-evidence-v1.schema.json",
+  "title": "Control Center operations workflow evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "change_id",
+    "revision_id",
+    "revision_digest",
+    "approval_state",
+    "approval_satisfied",
+    "approval_observed_at",
+    "job_id",
+    "job_version",
+    "outcome",
+    "result_output_present",
+    "health_checks",
+    "audit_events",
+    "result_observed_at",
+    "recovery_point_id",
+    "recovery_state",
+    "recovery_evaluated_at",
+    "state",
+    "block_reasons",
+    "evidence_complete",
+    "observed_at",
+    "execution_authorized",
+    "production_mutation_allowed"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "ui.operations-workflow-evidence/v1"
+    },
+    "change_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "revision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "revision_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "approval_state": {
+      "type": "string",
+      "enum": ["denied", "not_required", "pending", "satisfied"]
+    },
+    "approval_satisfied": {
+      "type": "boolean"
+    },
+    "approval_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "job_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["cancelled", "succeeded", "failed"]
+    },
+    "result_output_present": {
+      "type": "boolean"
+    },
+    "result_output_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "health_checks": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "audit_events": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "worst_health": {
+      "type": "string",
+      "enum": ["healthy", "degraded", "failed", "unknown"]
+    },
+    "result_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "recovery_point_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "recovery_state": {
+      "type": "string",
+      "enum": ["ready", "blocked", "expired"]
+    },
+    "recovery_evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["complete", "blocked"]
+    },
+    "block_reasons": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "approval_not_satisfied",
+          "recovery_not_ready",
+          "post_condition_not_verified",
+          "audit_evidence_missing"
+        ]
+      }
+    },
+    "evidence_complete": {
+      "type": "boolean"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "production_mutation_allowed": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"result_output_present": {"const": false}}
+      },
+      "then": {
+        "properties": {"outcome": {"const": "cancelled"}},
+        "not": {"required": ["result_output_digest"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"health_checks": {"const": 0}}
+      },
+      "then": {
+        "not": {"required": ["worst_health"]}
+      },
+      "else": {
+        "required": ["worst_health"]
+      }
+    }
+  ]
+}

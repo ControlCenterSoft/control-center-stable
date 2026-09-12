@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/release-candidate-readiness-v1.schema.json",
+  "title": "Control Center 0.31 release candidate readiness v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "stable_version",
+    "stable_tag",
+    "stable_artifact_digest",
+    "candidate_version",
+    "candidate_sha",
+    "gates"
+  ],
+  "properties": {
+    "schema": {
+      "const": "control-center.release-candidate-readiness.v1"
+    },
+    "stable_version": {
+      "const": "0.30.0"
+    },
+    "stable_tag": {
+      "const": "v0.30.0"
+    },
+    "stable_artifact_digest": {
+      "const": "sha256:02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2"
+    },
+    "candidate_version": {
+      "const": "0.31.0"
+    },
+    "candidate_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "gates": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/gateEvidence"
+      }
+    }
+  },
+  "$defs": {
+    "gateEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate",
+        "status",
+        "candidate_sha"
+      ],
+      "properties": {
+        "gate": {
+          "type": "string",
+          "enum": [
+            "manual_retry_lineage_integration",
+            "operational_workflow_e2e",
+            "candidate_artifact_packaging",
+            "clean_install",
+            "upgrade_from_stable_0_30",
+            "rollback_forward_recovery",
+            "postgres_restart_reconnect",
+            "security_privacy",
+            "commercial_legal_clearance",
+            "release_metadata"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "blocked",
+            "pass"
+          ]
+        },
+        "candidate_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "evidence_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

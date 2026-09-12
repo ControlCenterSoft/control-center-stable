@@ -73,7 +73,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize orchestration: %w", err)
 	}
-	product := newProductHandler(identity)
+	product := newProductHandler(identity, withChangesJobsProvider(orchestration))
 	server := &http.Server{
 		Addr: cfg.ListenAddress,
 		Handler: splitHandler{
@@ -175,6 +175,7 @@ func (h splitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		path == "/api/v1/agent/nodes" ||
 		strings.HasPrefix(path, "/api/v1/agent/nodes/") ||
 		path == "/api/v1/ui/infrastructure" ||
+		path == "/api/v1/ui/changes-jobs" ||
 		path == "/infrastructure" ||
 		path == "/api/v1/market/manifests" ||
 		strings.HasPrefix(path, "/api/v1/market/manifests/") ||
