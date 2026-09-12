@@ -1,0 +1,295 @@
+name: Qualify Control Center Stable 0.31.0
+
+on:
+  push:
+    branches:
+      - qualification/stable-0.31.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualify-control-center-stable-0.31.0
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.31.0
+  UPSTREAM_REPOSITORY: ControlCenterSoft/control-center-development
+  UPSTREAM_TAG: v0.31.0
+  SOURCE_TAG_SHA: c003d78f8b7aca0c8810a4267f5c95a36959fca1
+  PROMOTION_SOURCE_SHA: __PROMOTION_SOURCE_SHA__
+  STABLE_AUTH_SERVER_BLOB_SHA: 55966301f065210b845a304a0538f75cef4e1dc9
+
+jobs:
+  provenance-safety:
+    name: Provenance, guarded lineage and public safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact promotion source and verify immutable source tag
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$PROMOTION_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --quiet --detach "$PROMOTION_SOURCE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$PROMOTION_SOURCE_SHA"
+          test "$(tr -d '\r\n' < source/VERSION)" = "$VERSION"
+          tag_sha="$(git -C source rev-list -n1 "$UPSTREAM_TAG")"
+          test "$tag_sha" = "$SOURCE_TAG_SHA"
+          remote_tag_sha="$(git ls-remote "https://github.com/$UPSTREAM_REPOSITORY.git" "refs/tags/$UPSTREAM_TAG" | awk '{print $1}')"
+          test "$remote_tag_sha" = "$SOURCE_TAG_SHA"
+          git -C source merge-base --is-ancestor "$SOURCE_TAG_SHA" "$PROMOTION_SOURCE_SHA"
+      - name: Verify guarded post-tag regression-fix lineage
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          unexpected="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$PROMOTION_SOURCE_SHA" -- | grep -Ev '^(internal/identity/httpapi/server\.go|internal/identity/httpapi/web_auth_boundary_test\.go|docs/QUALIFICATION_0\.31_STABLE_AUTH_HOTFIX_RU\.md)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo 'unexpected post-tag source delta:' >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 66
+          fi
+          changed="$(git -C source diff --name-only "$SOURCE_TAG_SHA" "$PROMOTION_SOURCE_SHA" --)"
+          grep -Fxq 'internal/identity/httpapi/server.go' <<<"$changed"
+          grep -Fxq 'internal/identity/httpapi/web_auth_boundary_test.go' <<<"$changed"
+          grep -Fxq 'docs/QUALIFICATION_0.31_STABLE_AUTH_HOTFIX_RU.md' <<<"$changed"
+          server_blob="$(git -C source rev-parse "$PROMOTION_SOURCE_SHA:internal/identity/httpapi/server.go")"
+          test "$server_blob" = "$STABLE_AUTH_SERVER_BLOB_SHA"
+      - name: Scan public source boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -f source/.env
+          test ! -f source/.env.staging
+          test -f source/README.md
+          test -f source/SECURITY.md
+          test -f source/docs/RELEASE_0.31.0_RU.md
+          if grep -RInE --exclude-dir=.git --exclude='*.sum' --exclude='ci.yml' '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|sk-(proj-)?[A-Za-z0-9_-]{24,})' source; then
+            echo 'public-safety scan detected credential-like material' >&2
+            exit 66
+          fi
+
+  static-unit-build:
+    name: Format, vet, unit, contracts and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact promotion source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --quiet --detach "$PROMOTION_SOURCE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$PROMOTION_SOURCE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Format
+        working-directory: source
+        run: make fmt-check
+      - name: Vet
+        working-directory: source
+        run: go vet ./...
+      - name: Unit and contract tests
+        working-directory: source
+        run: go test ./...
+      - name: Focused Stable browser authentication regression gate
+        working-directory: source
+        run: go test ./internal/identity/httpapi -run '^TestWebAuthenticationBoundary' -count=1 -v
+      - name: Build
+        working-directory: source
+        run: go build -trimpath -buildvcs=false ./cmd/control-center
+
+  postgres-migrations:
+    name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.scenario }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        postgres: ['15', '16', '17', '18']
+        scenario: [clean-install, upgrade-from-0.30]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact promotion source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --quiet --detach "$PROMOTION_SOURCE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Verify revision and migration scenario
+        shell: bash
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+          QUALIFICATION_SCENARIO: ${{ matrix.scenario }}
+        working-directory: source
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$PROMOTION_SOURCE_SHA"
+          case "$QUALIFICATION_SCENARIO" in
+            clean-install) qualification_test=TestPostgresCleanInstallAndRestart ;;
+            upgrade-from-0.30) qualification_test=TestPostgresUpgradeFrom030PreservesCredentialsAndDurableJob ;;
+            *) exit 2 ;;
+          esac
+          go test ./migrations -run "^${qualification_test}$" -count=1 -v
+
+  postgres-adapters:
+    name: PostgreSQL ${{ matrix.postgres }} adapters/restart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        postgres: ['15', '16', '17', '18']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact promotion source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --quiet --detach "$PROMOTION_SOURCE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Install current schema
+        working-directory: source
+        env:
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1 -v
+      - name: Verify PostgreSQL adapters and restart recovery
+        working-directory: source
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./internal/persistence/postgres -run '^TestPostgres' -count=1 -v
+
+  race:
+    name: Race detector and restart safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: control_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d control_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact promotion source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --quiet --detach "$PROMOTION_SOURCE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Install current schema
+        working-directory: source
+        env:
+          MIGRATION_INSTALL_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test ./migrations -run '^TestPostgresInstallCurrentSchemaFixture$' -count=1
+      - name: Run race detector
+        working-directory: source
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/control_center_test?sslmode=disable
+        run: go test -race -count=1 ./...
+
+  reproducible-package:
+    name: Reproducible 0.31 candidate package and checksum
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    needs: [provenance-safety, static-unit-build]
+    steps:
+      - name: Checkout exact promotion source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git clone --quiet "https://github.com/$UPSTREAM_REPOSITORY.git" source
+          git -C source checkout --quiet --detach "$PROMOTION_SOURCE_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+          cache: true
+      - name: Build deterministic candidate twice
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PROMOTION_SOURCE_SHA"
+          epoch="$(git -C source show -s --format=%ct HEAD)"
+          for n in 1 2; do
+            (cd source && DIST_DIR="$GITHUB_WORKSPACE/dist-$n" SOURCE_DATE_EPOCH="$epoch" CANDIDATE_SHA="$PROMOTION_SOURCE_SHA" bash scripts/build-candidate-031.sh >/tmp/build-$n.log)
+          done
+          cmp "dist-1/control-center-${VERSION}-linux-amd64.tar.gz" "dist-2/control-center-${VERSION}-linux-amd64.tar.gz"
+          cmp "dist-1/control-center-${VERSION}.sbom.cdx.json" "dist-2/control-center-${VERSION}.sbom.cdx.json"
+          cp -a dist-1 dist
+          (cd dist && sha256sum -c "control-center-${VERSION}-linux-amd64.tar.gz.sha256")
+          printf '{"schema":"control-center.stable-qualification.v2","version":"%s","source_tag":"%s","source_tag_commit":"%s","promotion_source_commit":"%s","result":"qualified-package-candidate"}\n' "$VERSION" "$UPSTREAM_TAG" "$SOURCE_TAG_SHA" "$PROMOTION_SOURCE_SHA" > dist/stable-qualification.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-center-stable-0.31.0-qualification-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  qualification-gate:
+    name: Stable qualification gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [provenance-safety, static-unit-build, postgres-migrations, postgres-adapters, race, reproducible-package]
+    steps:
+      - name: Require every Stable gate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'CONTROL_CENTER_0_31_STABLE_QUALIFICATION=PASS'
+          echo "SOURCE_TAG_SHA=$SOURCE_TAG_SHA"
+          echo "PROMOTION_SOURCE_SHA=$PROMOTION_SOURCE_SHA"
