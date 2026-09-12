@@ -1,0 +1,298 @@
+name: Publish Control Center 0.31.0 Public Stable
+
+on:
+  push:
+    branches:
+      - publish/cc-0.31.0-public-stable-final-20260913
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-control-center-stable-0.31.0
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.31.0
+  STABLE_COMMIT: ab9f15fe804631ee6828f2be9b489f1a748522e3
+  SOURCE_TAG_COMMIT: c003d78f8b7aca0c8810a4267f5c95a36959fca1
+  PROMOTED_CANDIDATE_COMMIT: e4fd4cb5941059cd5d77325340fc538bdf31f987
+  QUALIFICATION_RUN_ID: '34721199480'
+  QUALIFICATION_HEAD_SHA: 1a8841f5c62cc1c2420b9e5471b20449c260940b
+  QUALIFICATION_ARTIFACT: control-center-stable-0.31.0-qualification-34721199480
+  PROMOTION_RUN_ID: '34721411186'
+  VERIFY_RUN_ID: '34721497395'
+
+jobs:
+  publish:
+    name: Publish exact qualified Public Stable release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact Stable main
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify immutable Stable lineage and prior runner evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$STABLE_COMMIT"
+          test "$(tr -d '\n' < VERSION)" = "$VERSION"
+          python3 - <<'PY'
+          import json, os
+          m=json.load(open('RELEASE-MANIFEST.json', encoding='utf-8'))
+          expected={
+            'schema':'control-center.stable-release.v2',
+            'version':os.environ['VERSION'],
+            'channel':'stable',
+            'source_tag':'v'+os.environ['VERSION'],
+            'source_tag_commit':os.environ['SOURCE_TAG_COMMIT'],
+            'promoted_candidate_commit':os.environ['PROMOTED_CANDIDATE_COMMIT'],
+            'qualification_run_id':int(os.environ['QUALIFICATION_RUN_ID']),
+            'qualification_head_sha':os.environ['QUALIFICATION_HEAD_SHA'],
+            'qualification_result':'success',
+            'promotion_run_id':int(os.environ['PROMOTION_RUN_ID']),
+            'promotion_result':'success',
+          }
+          for k,v in expected.items():
+              if m.get(k) != v:
+                  raise SystemExit(f'RELEASE_MANIFEST_MISMATCH {k}: {m.get(k)!r} != {v!r}')
+          if m.get('promotion_tree_commit') != '31b4c0edb397e101f06321aa787a40995ad551a8':
+              raise SystemExit('PROMOTION_TREE_COMMIT_MISMATCH')
+          print('STABLE_MANIFEST=PASS')
+          PY
+          for spec in \
+            "$QUALIFICATION_RUN_ID:$QUALIFICATION_HEAD_SHA" \
+            "$PROMOTION_RUN_ID:07f6f9e201629570bbec5063d8b3b85b8c2a087c" \
+            "$VERIFY_RUN_ID:$STABLE_COMMIT"; do
+            run_id="${spec%%:*}"
+            expected_sha="${spec#*:}"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "/tmp/run-$run_id.json"
+            python3 - "$expected_sha" "/tmp/run-$run_id.json" <<'PY'
+          import json, sys
+          expected_sha, path=sys.argv[1:]
+          run=json.load(open(path, encoding='utf-8'))
+          assert run.get('status') == 'completed', run.get('status')
+          assert run.get('conclusion') == 'success', run.get('conclusion')
+          assert run.get('head_sha') == expected_sha, (run.get('head_sha'), expected_sha)
+          print('RUN_EVIDENCE=PASS', run['id'], expected_sha)
+          PY
+          done
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            test "$(git rev-list -n1 "v${VERSION}")" = "$STABLE_COMMIT" || {
+              echo 'existing Stable tag points to a different commit' >&2; exit 66;
+            }
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" >/tmp/existing-release.json 2>/dev/null; then
+            echo 'Public Stable release already exists; refusing duplicate publication' >&2
+            exit 66
+          fi
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download independently qualified Stable binary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist qualification
+          gh run download "$QUALIFICATION_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$QUALIFICATION_ARTIFACT" \
+            --dir qualification
+          test -f "qualification/control-center-${VERSION}-linux-amd64.tar.gz"
+          test -f qualification/SHA256SUMS
+          test -f qualification/qualification.json
+          (cd qualification && sha256sum -c SHA256SUMS)
+          cp "qualification/control-center-${VERSION}-linux-amd64.tar.gz" dist/
+          cp qualification/SHA256SUMS "dist/control-center-${VERSION}-linux-amd64.tar.gz.sha256"
+          cp qualification/qualification.json "dist/control-center-${VERSION}.qualification.json"
+
+      - name: Build exact Stable source archive and SBOM
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git archive --format=tar.gz --prefix="control-center-${VERSION}/" \
+            -o "dist/control-center-${VERSION}-source.tar.gz" "$STABLE_COMMIT"
+          cp THIRD_PARTY_NOTICES.md dist/THIRD_PARTY_NOTICES.md
+          go list -m -json all > /tmp/go-modules.jsonl
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from urllib.parse import quote
+          raw=Path('/tmp/go-modules.jsonl').read_text(encoding='utf-8')
+          dec=json.JSONDecoder(); pos=0; mods=[]
+          while True:
+              while pos < len(raw) and raw[pos].isspace(): pos += 1
+              if pos >= len(raw): break
+              item, pos = dec.raw_decode(raw, pos)
+              mods.append(item)
+          components=[]
+          for m in mods:
+              if m.get('Main'): continue
+              r=m.get('Replace') or {}
+              path=r.get('Path') or m.get('Path')
+              version=r.get('Version') or m.get('Version') or 'unknown'
+              components.append({
+                  'type':'library',
+                  'name':path,
+                  'version':version,
+                  'purl':f"pkg:golang/{quote(path, safe='/')}@{quote(version, safe='')}",
+              })
+          components.sort(key=lambda x:(x['name'],x['version']))
+          doc={
+              'bomFormat':'CycloneDX',
+              'specVersion':'1.6',
+              'version':1,
+              'metadata':{'component':{'type':'application','name':'control-center','version':os.environ['VERSION']}},
+              'components':components,
+          }
+          out=Path(f"dist/control-center-{os.environ['VERSION']}.sbom.cdx.json")
+          out.write_text(json.dumps(doc, sort_keys=True, separators=(',',':'))+'\n', encoding='utf-8')
+          check=json.loads(out.read_text(encoding='utf-8'))
+          assert check['bomFormat']=='CycloneDX' and check['components']
+          print('SBOM_COMPONENTS', len(check['components']))
+          PY
+
+      - name: Materialize exact Stable provenance, release manifest and checksums
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          dist=Path('dist'); version=os.environ['VERSION']
+          def sha(p):
+              h=hashlib.sha256()
+              with p.open('rb') as f:
+                  for chunk in iter(lambda:f.read(1024*1024), b''): h.update(chunk)
+              return h.hexdigest()
+          subject_names=[
+              f'control-center-{version}-linux-amd64.tar.gz',
+              f'control-center-{version}-linux-amd64.tar.gz.sha256',
+              f'control-center-{version}-source.tar.gz',
+              f'control-center-{version}.sbom.cdx.json',
+              'THIRD_PARTY_NOTICES.md',
+              f'control-center-{version}.qualification.json',
+          ]
+          subjects=[{'name':n,'digest':'sha256:'+sha(dist/n)} for n in subject_names]
+          provenance={
+              'schema':'control-center.stable-provenance.v1',
+              'version':version,
+              'channel':'public-stable',
+              'stable_commit':os.environ['STABLE_COMMIT'],
+              'source_tag_commit':os.environ['SOURCE_TAG_COMMIT'],
+              'promoted_candidate_commit':os.environ['PROMOTED_CANDIDATE_COMMIT'],
+              'qualification_run_id':int(os.environ['QUALIFICATION_RUN_ID']),
+              'promotion_run_id':int(os.environ['PROMOTION_RUN_ID']),
+              'stable_verify_run_id':int(os.environ['VERIFY_RUN_ID']),
+              'product_public_stable_authorized':True,
+              'commercial_launch_authorized':False,
+              'subjects':subjects,
+          }
+          prov=dist/f'control-center-{version}.provenance.json'
+          prov.write_text(json.dumps(provenance, sort_keys=True, separators=(',',':'))+'\n', encoding='utf-8')
+          subject_names.append(prov.name)
+          release_manifest={
+              'schema':'control-center.public-stable-assets.v1',
+              'version':version,
+              'channel':'public-stable',
+              'tag':'v'+version,
+              'stable_commit':os.environ['STABLE_COMMIT'],
+              'source_tag_commit':os.environ['SOURCE_TAG_COMMIT'],
+              'promoted_candidate_commit':os.environ['PROMOTED_CANDIDATE_COMMIT'],
+              'qualification_run_id':int(os.environ['QUALIFICATION_RUN_ID']),
+              'promotion_run_id':int(os.environ['PROMOTION_RUN_ID']),
+              'stable_verify_run_id':int(os.environ['VERIFY_RUN_ID']),
+              'commercial_legal_clearance':'not-claimed',
+              'commercial_launch_authorized':False,
+              'artifacts':{n:'sha256:'+sha(dist/n) for n in subject_names},
+          }
+          manifest=dist/f'control-center-{version}.release-manifest.json'
+          manifest.write_text(json.dumps(release_manifest, sort_keys=True, separators=(',',':'))+'\n', encoding='utf-8')
+          sums=[]
+          for p in sorted(dist.iterdir(), key=lambda p:p.name):
+              if p.name == 'SHA256SUMS': continue
+              sums.append(f"{sha(p)}  {p.name}")
+          (dist/'SHA256SUMS').write_text('\n'.join(sums)+'\n', encoding='ascii')
+          PY
+          (cd dist && sha256sum -c SHA256SUMS)
+          test "$(awk '{print $1}' "dist/control-center-${VERSION}-linux-amd64.tar.gz.sha256")" = \
+               "$(sha256sum "dist/control-center-${VERSION}-linux-amd64.tar.gz" | awk '{print $1}')"
+          ls -lh dist
+
+      - name: Create immutable Stable tag and draft release
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tag="v${VERSION}"
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" "$STABLE_COMMIT" -m "Control Center ${VERSION} Public Stable"
+            git push origin "refs/tags/$tag"
+          fi
+          test "$(git rev-list -n1 "$tag")" = "$STABLE_COMMIT"
+          payload="$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+            'tag_name':'v'+os.environ['VERSION'],
+            'target_commitish':os.environ['STABLE_COMMIT'],
+            'name':'Control Center '+os.environ['VERSION'],
+            'body':open('RELEASE_NOTES.md', encoding='utf-8').read(),
+            'draft':True,
+            'prerelease':False,
+          }))
+          PY
+          )"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input - <<<"$payload" > /tmp/release.json
+          release_id="$(python3 -c "import json; print(json.load(open('/tmp/release.json'))['id'])")"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+      - name: Upload and verify complete Stable asset set
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -Eeuo pipefail
+          tag="v${VERSION}"
+          gh release upload "$tag" dist/* --repo "$GITHUB_REPOSITORY"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > /tmp/assets.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          actual={a['name'] for a in json.load(open('/tmp/assets.json', encoding='utf-8'))}
+          expected={p.name for p in Path('dist').iterdir() if p.is_file()}
+          if actual != expected:
+              raise SystemExit(f'ASSET_SET_MISMATCH missing={sorted(expected-actual)} extra={sorted(actual-expected)}')
+          print('STABLE_ASSET_SET=PASS', len(actual))
+          PY
+
+      - name: Publish release and verify public identity
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -Eeuo pipefail
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false -F prerelease=false > /tmp/published.json
+          python3 - <<'PY'
+          import json, os
+          r=json.load(open('/tmp/published.json', encoding='utf-8'))
+          assert r['tag_name']=='v'+os.environ['VERSION']
+          assert r['name']=='Control Center '+os.environ['VERSION']
+          assert r['draft'] is False and r['prerelease'] is False
+          print('PUBLIC_STABLE_RELEASE=PASS', r['html_url'])
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" >/tmp/final-release.json
+          test "$(git rev-list -n1 "v${VERSION}")" = "$STABLE_COMMIT"
