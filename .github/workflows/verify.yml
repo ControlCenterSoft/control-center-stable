@@ -16,6 +16,20 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -84,6 +98,84 @@ jobs:
           version="$(tr -d '\n' < VERSION)"
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
           (cd dist && sha256sum -c "control-center-${version}-linux-amd64.tar.gz.sha256")
+
+      - name: Qualify packaged migration runner and install/upgrade path
+        shell: bash
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '\n' < VERSION)"
+          artifact="dist/control-center-${version}-linux-amd64.tar.gz"
+          bundle="control-center-${version}"
+
+          tar -tzf "$artifact" | grep -Fxq "${bundle}/scripts/migrate.sh"
+          tar -tzf "$artifact" | grep -Eq "^${bundle}/migrations/[0-9]+.*\.up\.sql$"
+
+          work="$(mktemp -d)"
+          clean_db="cc_pkg_clean_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          upgrade_db="cc_pkg_upgrade_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          clean_db="${clean_db//-/_}"
+          upgrade_db="${upgrade_db//-/_}"
+          cleanup() {
+            dropdb --if-exists "$clean_db" >/dev/null 2>&1 || true
+            dropdb --if-exists "$upgrade_db" >/dev/null 2>&1 || true
+            rm -rf "$work"
+          }
+          trap cleanup EXIT
+
+          if ! command -v psql >/dev/null 2>&1 || ! command -v createdb >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+
+          mkdir -p "$work/current" "$work/stable030"
+          tar -xzf "$artifact" -C "$work/current"
+          current_root="$work/current/$bundle"
+          test -x "$current_root/scripts/migrate.sh"
+          test -d "$current_root/migrations"
+          test "$(tr -d '\r\n' < "$current_root/VERSION")" = "$version"
+
+          createdb "$clean_db"
+          PGDATABASE="$clean_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          PGDATABASE="$clean_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          clean_count="$(PGDATABASE="$clean_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$clean_count" =~ ^[1-9][0-9]*$ ]]
+
+          stable_version=0.30.0
+          stable_asset_id=558184660
+          stable_sha256=02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2
+          stable_artifact="$work/control-center-${stable_version}-linux-amd64.tar.gz"
+          curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 180 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/ControlCenterSoft/control-center-stable/releases/assets/${stable_asset_id}" \
+            -o "$stable_artifact"
+          echo "$stable_sha256  $stable_artifact" | sha256sum -c -
+          tar -xzf "$stable_artifact" -C "$work/stable030"
+          stable_root="$work/stable030/control-center-${stable_version}"
+          test -x "$stable_root/scripts/migrate.sh"
+          test -d "$stable_root/migrations"
+
+          createdb "$upgrade_db"
+          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$stable_root/migrations" "$stable_root/scripts/migrate.sh"
+          stable_count="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$stable_count" =~ ^[1-9][0-9]*$ ]]
+          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          upgraded_count="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$upgraded_count" -ge "$stable_count" ]]
+          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          upgraded_count_again="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$upgraded_count_again" == "$upgraded_count" ]]
+
+          echo "PACKAGE_MIGRATION_RUNNER=PASS"
+          echo "PACKAGE_CLEAN_INSTALL=PASS"
+          echo "PACKAGE_UPGRADE_FROM_0_30=PASS"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

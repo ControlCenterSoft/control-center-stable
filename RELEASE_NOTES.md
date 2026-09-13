@@ -1,42 +1,38 @@
-# Control Center 0.31.0 Stable
+# Control Center 0.31.1 Stable corrective patch
 
-Статус: **Public Stable**.
+Статус: **candidate for Public Stable qualification**.
 
-0.31.0 вводит основной безопасный operational workflow вокруг Changes и Jobs.
+0.31.1 — корректирующий patch поверх официального Public Stable 0.31.0. Он не добавляет новый продуктовый feature scope и не изменяет Changes / Jobs operational semantics. Цель выпуска — восстановить подтверждённый Linux install/update package contract после обнаруженного дефекта опубликованного binary asset 0.31.0.
 
-## Что нового
+## Исправление
 
-- точная immutable revision Change, semantic diff и blast radius;
-- execution preflight и maintenance-window evidence;
-- approval evidence, привязанное к точной revision/hash;
-- durable Job lifecycle и timeline;
-- reconnect с version/ETag identity;
-- version-bound cancel и bounded manual retry с повторной revalidation;
-- terminal result и post-condition evidence;
-- recovery-path evidence и защита от false Success;
-- read-only Changes / Jobs operator view с fail-closed обработкой stale/incomplete evidence.
+Опубликованный `control-center-0.31.0-linux-amd64.tar.gz` имеет корректную SHA-256, но не содержит обязательный `scripts/migrate.sh`, поэтому публичный installer и canonical updater корректно останавливаются fail-closed.
 
-## Информационная безопасность
+В 0.31.1 Linux package обязан содержать исполняемый `scripts/migrate.sh`. Qualification должна проверять не только build-script source, но и фактический состав собранного архива после extraction, а затем использовать именно bundled migration runner для clean-install и supported upgrade acceptance.
 
-- универсальный shell/command execution API не добавляется;
-- stale revision, approval или Job version не принимается как current;
-- неподтверждённый terminal result не становится Success;
-- secrets, credentials, raw Job input/output и lease material не входят в operator evidence;
-- браузерный auth flow сохраняет безопасный redirect/login boundary, а API продолжает возвращать машинно-читаемый 401 без HTML-редиректа;
-- публичные source/privacy boundaries и неизменяемость ранее опубликованных migrations проверяются fail-closed.
+Tag/release/assets `v0.31.0` остаются неизменяемыми и не переписываются.
 
-## Upgrade, recovery и совместимость
+## Сохраняемая функциональность 0.31
 
-Release-candidate qualification подтверждала PostgreSQL 15–18 migration/adapter paths, static/unit/contracts/build, race/restart safety, upgrade/recovery semantics и воспроизводимую Linux AMD64 упаковку. Поддерживаемый upgrade design сохраняет данные, настройки и установленный пароль администратора.
+- exact immutable Change revision, semantic diff и blast radius;
+- execution preflight и approval evidence;
+- durable Job lifecycle/timeline;
+- reconnect, version-bound cancel и bounded manual retry;
+- terminal result/post-condition и recovery evidence;
+- fail-closed защита от false Success, stale/mismatched evidence и migration drift.
 
-### Известная проблема опубликованного Linux asset
+## Обязательная qualification перед Public Stable
 
-После публикации `v0.31.0` выявлено расхождение формы фактического Linux runtime package с install/update contract: `control-center-0.31.0-linux-amd64.tar.gz` не содержит обязательный `scripts/migrate.sh`. Публичный installer и canonical updater ожидают этот файл внутри runtime archive и поэтому останавливаются fail-closed.
+0.31.1 может быть опубликован как Public Stable только после PASS точного итогового SHA минимум по следующим границам:
 
-Контрольная сумма опубликованного файла корректна, но она подтверждает целостность именно этого payload и не доказывает работоспособность install/upgrade path. Existing tag/release/assets `v0.31.0` не переписываются.
+- public-source/no-secret boundary;
+- format/vet, unit/contracts, race и build;
+- воспроизводимая Linux AMD64 упаковка и SHA-256 sidecar;
+- фактическое наличие и executable bit `scripts/migrate.sh` внутри извлечённого release archive;
+- clean install PostgreSQL через migration runner из собранного archive;
+- supported upgrade с предыдущего Stable baseline через bundled migration runners;
+- повторное применение migrations/idempotency без destructive downgrade;
+- сохранение immutable опубликованных migrations;
+- release identity/version consistency.
 
-До corrective patch или отдельной квалифицированной exact-tag fallback procedure не считайте one-command clean install/update через Linux binary archive 0.31.0 поддерживаемым путём и не обходите migration-runner check вручную. Актуальная безопасная инструкция поддерживается в [INSTALL.md](INSTALL.md).
-
-## Лицензирование компонентов
-
-Выпуск содержит machine-readable third-party manifest, лицензии зависимостей и `THIRD_PARTY_NOTICES.md`. Коммерческие договорные условия ведутся отдельно от технической квалификации продукта и не подменяются техническим release evidence.
+После runner qualification ещё отдельно проверяются final release metadata/checksums/provenance для публикуемого asset set. Commercial/legal launch остаётся отдельным контуром и не подменяет техническое release evidence.
