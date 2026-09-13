@@ -10,7 +10,7 @@ const (
 	StableVersion        = "0.30.0"
 	StableTag            = "v0.30.0"
 	StableArtifactDigest = "sha256:02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2"
-	CandidateVersion     = "0.31.0"
+	CandidateVersion     = "0.31.1"
 )
 
 type GateID string
@@ -21,6 +21,7 @@ const (
 	GatePackaging          GateID = "candidate_artifact_packaging"
 	GateCleanInstall       GateID = "clean_install"
 	GateUpgradeFromStable  GateID = "upgrade_from_stable_0_30"
+	GateUpgradeFrom031     GateID = "upgrade_from_stable_0_31"
 	GateRollbackRecovery   GateID = "rollback_forward_recovery"
 	GatePostgresRestart    GateID = "postgres_restart_reconnect"
 	GateSecurityPrivacy    GateID = "security_privacy"
@@ -34,6 +35,7 @@ var requiredGates = [...]GateID{
 	GatePackaging,
 	GateCleanInstall,
 	GateUpgradeFromStable,
+	GateUpgradeFrom031,
 	GateRollbackRecovery,
 	GatePostgresRestart,
 	GateSecurityPrivacy,
@@ -52,6 +54,7 @@ var productStableRequiredGates = [...]GateID{
 	GatePackaging,
 	GateCleanInstall,
 	GateUpgradeFromStable,
+	GateUpgradeFrom031,
 	GateRollbackRecovery,
 	GatePostgresRestart,
 	GateSecurityPrivacy,
