@@ -1,16 +1,14 @@
 # Control Center 0.31.1 Stable corrective patch
 
-Статус: **candidate for Public Stable qualification**.
+Статус: **Public Stable**.
 
-0.31.1 — корректирующий patch поверх официального Public Stable 0.31.0. Он не добавляет новый продуктовый feature scope и не изменяет Changes / Jobs operational semantics. Цель выпуска — восстановить подтверждённый Linux install/update package contract после обнаруженного дефекта опубликованного binary asset 0.31.0.
+0.31.1 — корректирующий patch поверх 0.31.0. Он не добавляет новый продуктовый feature scope и не изменяет Changes / Jobs operational semantics. Выпуск восстанавливает подтверждённый Linux install/update package contract после обнаруженного дефекта опубликованного binary asset 0.31.0.
 
 ## Исправление
 
-Опубликованный `control-center-0.31.0-linux-amd64.tar.gz` имеет корректную SHA-256, но не содержит обязательный `scripts/migrate.sh`. Поэтому общий binary install/update path через этот archive не считается самостоятельным подтверждённым путём; защитные проверки должны оставаться fail-closed.
+Linux AMD64 archive 0.31.1 содержит обязательный исполняемый `scripts/migrate.sh`. Release qualification проверила фактический состав собранного archive, clean install PostgreSQL, migration idempotency и поддерживаемые переходы с 0.30.0 и 0.31.0.
 
-В 0.31.1 Linux package обязан содержать исполняемый `scripts/migrate.sh`. Qualification проверяет не только исходный build contract, но и фактический состав собранного архива после extraction, а затем использует именно bundled migration runner для clean-install и supported upgrade acceptance.
-
-Tag/release/assets `v0.31.0` остаются неизменяемыми и не переписываются.
+`v0.31.0` и его assets остаются неизменяемыми. Известный package-shape defect этой исторической версии не исправлялся перепубликацией старого release.
 
 ## Сохраняемая функциональность 0.31
 
@@ -21,21 +19,8 @@ Tag/release/assets `v0.31.0` остаются неизменяемыми и не
 - terminal result/post-condition и recovery evidence;
 - fail-closed защита от false Success, stale/mismatched evidence и migration drift.
 
-## Обязательная qualification перед Public Stable
+## Release evidence
 
-0.31.1 может быть опубликован как Public Stable только после PASS точной итоговой release identity минимум по следующим границам:
-
-- public-source/no-secret boundary;
-- format/vet, unit/contracts, race и build;
-- воспроизводимая Linux AMD64 упаковка и SHA-256 sidecar;
-- фактическое наличие и executable bit `scripts/migrate.sh` внутри извлечённого release archive;
-- clean install PostgreSQL через migration runner из собранного archive;
-- supported upgrade с предыдущего Stable baseline и с поддерживаемых установленных 0.31.0 состояний, где применимо;
-- повторное применение migrations/idempotency без destructive downgrade;
-- сохранение пользовательских данных, конфигурации и установленного пароля администратора;
-- rollback/forward-recovery;
-- сохранение immutable опубликованных migrations;
-- release identity/version consistency;
-- final release metadata/checksums/provenance/SBOM для публикуемого asset set.
+Опубликован полный Stable asset set: Linux AMD64 package и checksum, source archive, CycloneDX SBOM, third-party notices, qualification evidence, provenance, release manifest и `SHA256SUMS`. После публикации assets повторно скачаны и проверены по контрольным суммам и package-shape contract.
 
 Commercial/legal launch остаётся отдельным контуром и не подменяет техническое release evidence.
