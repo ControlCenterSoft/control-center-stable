@@ -99,7 +99,7 @@ jobs:
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
           (cd dist && sha256sum -c "control-center-${version}-linux-amd64.tar.gz.sha256")
 
-      - name: Qualify packaged migration runner and install/upgrade path
+      - name: Qualify packaged migration runner and install/upgrade paths
         shell: bash
         env:
           PGHOST: 127.0.0.1
@@ -118,12 +118,15 @@ jobs:
 
           work="$(mktemp -d)"
           clean_db="cc_pkg_clean_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          upgrade_db="cc_pkg_upgrade_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          upgrade030_db="cc_pkg_upgrade030_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          upgrade031_db="cc_pkg_upgrade031_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           clean_db="${clean_db//-/_}"
-          upgrade_db="${upgrade_db//-/_}"
+          upgrade030_db="${upgrade030_db//-/_}"
+          upgrade031_db="${upgrade031_db//-/_}"
           cleanup() {
             dropdb --if-exists "$clean_db" >/dev/null 2>&1 || true
-            dropdb --if-exists "$upgrade_db" >/dev/null 2>&1 || true
+            dropdb --if-exists "$upgrade030_db" >/dev/null 2>&1 || true
+            dropdb --if-exists "$upgrade031_db" >/dev/null 2>&1 || true
             rm -rf "$work"
           }
           trap cleanup EXIT
@@ -133,11 +136,13 @@ jobs:
             sudo apt-get install -y postgresql-client
           fi
 
-          mkdir -p "$work/current" "$work/stable030"
+          mkdir -p "$work/current" "$work/stable030" "$work/stable031"
           tar -xzf "$artifact" -C "$work/current"
           current_root="$work/current/$bundle"
+          test -x "$current_root/bin/control-center"
           test -x "$current_root/scripts/migrate.sh"
           test -d "$current_root/migrations"
+          test -f "$current_root/deploy/systemd/control-center.service"
           test "$(tr -d '\r\n' < "$current_root/VERSION")" = "$version"
 
           createdb "$clean_db"
@@ -146,36 +151,75 @@ jobs:
           clean_count="$(PGDATABASE="$clean_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
           [[ "$clean_count" =~ ^[1-9][0-9]*$ ]]
 
-          stable_version=0.30.0
-          stable_asset_id=558184660
-          stable_sha256=02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2
-          stable_artifact="$work/control-center-${stable_version}-linux-amd64.tar.gz"
+          stable030_version=0.30.0
+          stable030_asset_id=558184660
+          stable030_sha256=02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2
+          stable030_artifact="$work/control-center-${stable030_version}-linux-amd64.tar.gz"
           curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 180 \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/octet-stream" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/ControlCenterSoft/control-center-stable/releases/assets/${stable_asset_id}" \
-            -o "$stable_artifact"
-          echo "$stable_sha256  $stable_artifact" | sha256sum -c -
-          tar -xzf "$stable_artifact" -C "$work/stable030"
-          stable_root="$work/stable030/control-center-${stable_version}"
-          test -x "$stable_root/scripts/migrate.sh"
-          test -d "$stable_root/migrations"
+            "https://api.github.com/repos/ControlCenterSoft/control-center-stable/releases/assets/${stable030_asset_id}" \
+            -o "$stable030_artifact"
+          echo "$stable030_sha256  $stable030_artifact" | sha256sum -c -
+          tar -xzf "$stable030_artifact" -C "$work/stable030"
+          stable030_root="$work/stable030/control-center-${stable030_version}"
+          test -x "$stable030_root/scripts/migrate.sh"
+          test -d "$stable030_root/migrations"
 
-          createdb "$upgrade_db"
-          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$stable_root/migrations" "$stable_root/scripts/migrate.sh"
-          stable_count="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
-          [[ "$stable_count" =~ ^[1-9][0-9]*$ ]]
-          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
-          upgraded_count="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
-          [[ "$upgraded_count" -ge "$stable_count" ]]
-          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
-          upgraded_count_again="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
-          [[ "$upgraded_count_again" == "$upgraded_count" ]]
+          createdb "$upgrade030_db"
+          PGDATABASE="$upgrade030_db" MIGRATIONS_DIR="$stable030_root/migrations" "$stable030_root/scripts/migrate.sh"
+          stable030_count="$(PGDATABASE="$upgrade030_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$stable030_count" =~ ^[1-9][0-9]*$ ]]
+          PGDATABASE="$upgrade030_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          upgraded030_count="$(PGDATABASE="$upgrade030_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$upgraded030_count" -ge "$stable030_count" ]]
+          PGDATABASE="$upgrade030_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          upgraded030_again="$(PGDATABASE="$upgrade030_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$upgraded030_again" == "$upgraded030_count" ]]
+
+          # 0.31.0 is an immutable published Stable with a known package-shape
+          # defect: its binary archive has migrations but omits migrate.sh.
+          # Reconstruct the supported installed-state migration path using the
+          # exact runner from the same immutable tag, bounded by its pinned hash.
+          stable031_version=0.31.0
+          stable031_asset_id=560030800
+          stable031_sha256=0b270edcf1d17bd6a38fa3f77b78c4112d43fb945582ee2d25cd91daf38cf06c
+          stable031_migrate_sha256=6965ea551bddd809bc23eee17ed56b828a71b0d294761f0210bb9a6dc8c12f3d
+          stable031_artifact="$work/control-center-${stable031_version}-linux-amd64.tar.gz"
+          curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 180 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/ControlCenterSoft/control-center-stable/releases/assets/${stable031_asset_id}" \
+            -o "$stable031_artifact"
+          echo "$stable031_sha256  $stable031_artifact" | sha256sum -c -
+          tar -xzf "$stable031_artifact" -C "$work/stable031"
+          stable031_root="$work/stable031/control-center-${stable031_version}"
+          test -d "$stable031_root/migrations"
+          test ! -e "$stable031_root/scripts/migrate.sh"
+          mkdir -p "$stable031_root/scripts"
+          curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 60 \
+            "https://raw.githubusercontent.com/ControlCenterSoft/control-center-stable/v0.31.0/scripts/migrate.sh" \
+            -o "$stable031_root/scripts/migrate.sh"
+          echo "$stable031_migrate_sha256  $stable031_root/scripts/migrate.sh" | sha256sum -c -
+          chmod 0755 "$stable031_root/scripts/migrate.sh"
+
+          createdb "$upgrade031_db"
+          PGDATABASE="$upgrade031_db" MIGRATIONS_DIR="$stable031_root/migrations" "$stable031_root/scripts/migrate.sh"
+          stable031_count="$(PGDATABASE="$upgrade031_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$stable031_count" =~ ^[1-9][0-9]*$ ]]
+          PGDATABASE="$upgrade031_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          upgraded031_count="$(PGDATABASE="$upgrade031_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$upgraded031_count" -ge "$stable031_count" ]]
+          PGDATABASE="$upgrade031_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
+          upgraded031_again="$(PGDATABASE="$upgrade031_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
+          [[ "$upgraded031_again" == "$upgraded031_count" ]]
 
           echo "PACKAGE_MIGRATION_RUNNER=PASS"
           echo "PACKAGE_CLEAN_INSTALL=PASS"
           echo "PACKAGE_UPGRADE_FROM_0_30=PASS"
+          echo "PACKAGE_UPGRADE_FROM_0_31=PASS"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
