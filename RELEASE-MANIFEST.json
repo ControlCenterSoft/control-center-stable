@@ -1,11 +1,16 @@
 {
-  "schema": "control-center.stable-release-candidate.v1",
+  "schema": "control-center.stable-release.v3",
   "version": "0.31.1",
-  "channel": "stable-candidate",
-  "base_stable": "0.31.0",
-  "purpose": "corrective-linux-package",
+  "channel": "stable",
+  "source_tag": "v0.31.1",
+  "source_commit": "3c9999fb5b056dad9d8dda9cf45809acb021497e",
+  "qualification_result": "success",
   "required_package_members": [
-    "scripts/migrate.sh"
+    "bin/control-center",
+    "scripts/migrate.sh",
+    "deploy/systemd/control-center.service",
+    "VERSION"
   ],
-  "publication_authority": false
+  "publication_authority": true,
+  "commercial_launch_authority": false
 }
