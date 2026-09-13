@@ -221,11 +221,22 @@ jobs:
           echo "PACKAGE_UPGRADE_FROM_0_30=PASS"
           echo "PACKAGE_UPGRADE_FROM_0_31=PASS"
 
+      - name: Qualify exact Public Stable metadata set
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          QUALIFIED_RUN_ID: ${{ github.run_id }}
+          QUALIFIED_ARTIFACT_DIR: ${{ github.workspace }}/dist
+        run: |
+          set -Eeuo pipefail
+          bash scripts/prepare-public-stable-0311.sh
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: control-center-stable-${{ github.sha }}
           path: |
             dist/control-center-*-linux-amd64.tar.gz
             dist/control-center-*-linux-amd64.tar.gz.sha256
+            dist/public-stable-0.31.1/*
           if-no-files-found: error
           retention-days: 14
