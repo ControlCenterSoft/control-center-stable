@@ -13,7 +13,9 @@ release_sha="${RELEASE_SHA:-$(git rev-parse HEAD)}"
 
 source_date_epoch="$(git show -s --format=%ct "$release_sha")"
 [[ "$source_date_epoch" =~ ^[0-9]+$ ]] || { echo "invalid source date epoch" >&2; exit 2; }
-qualified_run_id="${QUALIFIED_RUN_ID:-unknown}"
+qualified_run_id="${QUALIFIED_RUN_ID:-}"
+[[ "$qualified_run_id" =~ ^[0-9]+$ ]] || { echo "exact successful qualification workflow run id is required" >&2; exit 2; }
+[[ -n "${QUALIFIED_ARTIFACT_DIR:-}" ]] || { echo "qualified exact-run artifact directory is required" >&2; exit 2; }
 out="${DIST_DIR:-$repo_root/dist/public-stable-$version}"
 rm -rf "$out"
 mkdir -p "$out"
@@ -26,16 +28,14 @@ sidecar="$binary.sha256"
 [[ -s "$binary" && -s "$sidecar" ]]
 (cd "$out" && sha256sum -c "$(basename "$sidecar")")
 
-if [[ -n "${QUALIFIED_ARTIFACT_DIR:-}" ]]; then
-  qualified_binary="$QUALIFIED_ARTIFACT_DIR/control-center-$version-linux-amd64.tar.gz"
-  qualified_sidecar="$QUALIFIED_ARTIFACT_DIR/control-center-$version-linux-amd64.tar.gz.sha256"
-  [[ -f "$qualified_binary" && -f "$qualified_sidecar" ]] || {
-    echo "qualified exact-run binary/sidecar are missing" >&2
-    exit 2
-  }
-  cmp -s "$qualified_binary" "$binary" || { echo "rebuilt binary differs from exact-run qualified artifact" >&2; exit 1; }
-  cmp -s "$qualified_sidecar" "$sidecar" || { echo "rebuilt sidecar differs from exact-run qualified sidecar" >&2; exit 1; }
-fi
+qualified_binary="$QUALIFIED_ARTIFACT_DIR/control-center-$version-linux-amd64.tar.gz"
+qualified_sidecar="$QUALIFIED_ARTIFACT_DIR/control-center-$version-linux-amd64.tar.gz.sha256"
+[[ -f "$qualified_binary" && -f "$qualified_sidecar" ]] || {
+  echo "qualified exact-run binary/sidecar are missing" >&2
+  exit 2
+}
+cmp -s "$qualified_binary" "$binary" || { echo "rebuilt binary differs from exact-run qualified artifact" >&2; exit 1; }
+cmp -s "$qualified_sidecar" "$sidecar" || { echo "rebuilt sidecar differs from exact-run qualified sidecar" >&2; exit 1; }
 
 # Source archive is bound to the exact release SHA and uses gzip without mutable
 # filename/timestamp metadata.
@@ -108,6 +108,10 @@ data={
     "upgrade_from_0_30":"PASS",
     "upgrade_from_0_31":"PASS",
     "migration_idempotency":"PASS",
+    "migration_immutability":"PASS",
+    "data_config_admin_credential_preservation":"PASS",
+    "rollback_forward_recovery":"PASS",
+    "release_identity":"PASS",
   },
   "commercial_legal_launch":"separate-not-product-stable-blocker",
 }
