@@ -113,8 +113,8 @@ jobs:
           artifact="dist/control-center-${version}-linux-amd64.tar.gz"
           bundle="control-center-${version}"
 
-          tar -tzf "$artifact" | grep -Fxq "${bundle}/scripts/migrate.sh"
-          tar -tzf "$artifact" | grep -Eq "^${bundle}/migrations/[0-9]+.*\.up\.sql$"
+          tar -tzf "$artifact" | grep -Fx "${bundle}/scripts/migrate.sh" >/dev/null
+          tar -tzf "$artifact" | grep -E "^${bundle}/migrations/[0-9]+.*\.up\.sql$" >/dev/null
 
           work="$(mktemp -d)"
           clean_db="cc_pkg_clean_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
