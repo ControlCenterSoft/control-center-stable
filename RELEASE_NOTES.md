@@ -27,7 +27,15 @@
 
 ## Upgrade, recovery и совместимость
 
-Независимая Stable qualification подтверждает PostgreSQL 15–18 migration/adapter paths, static/unit/contracts/build, race/restart safety, upgrade/recovery semantics и воспроизводимую Linux AMD64 упаковку. Поддерживаемое обновление с 0.30.0 сохраняет данные, настройки и установленный пароль администратора.
+Release-candidate qualification подтверждала PostgreSQL 15–18 migration/adapter paths, static/unit/contracts/build, race/restart safety, upgrade/recovery semantics и воспроизводимую Linux AMD64 упаковку. Поддерживаемый upgrade design сохраняет данные, настройки и установленный пароль администратора.
+
+### Известная проблема опубликованного Linux asset
+
+После публикации `v0.31.0` выявлено расхождение формы фактического Linux runtime package с install/update contract: `control-center-0.31.0-linux-amd64.tar.gz` не содержит обязательный `scripts/migrate.sh`. Публичный installer и canonical updater ожидают этот файл внутри runtime archive и поэтому останавливаются fail-closed.
+
+Контрольная сумма опубликованного файла корректна, но она подтверждает целостность именно этого payload и не доказывает работоспособность install/upgrade path. Existing tag/release/assets `v0.31.0` не переписываются.
+
+До corrective patch или отдельной квалифицированной exact-tag fallback procedure не считайте one-command clean install/update через Linux binary archive 0.31.0 поддерживаемым путём и не обходите migration-runner check вручную. Актуальная безопасная инструкция поддерживается в [INSTALL.md](INSTALL.md).
 
 ## Лицензирование компонентов
 
