@@ -77,13 +77,25 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Verify deterministic stable bundle
+      - name: Verify deterministic stable bundle and archive contract
         shell: bash
         run: |
           set -Eeuo pipefail
           version="$(tr -d '\n' < VERSION)"
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="$GITHUB_SHA" bash scripts/build-release.sh
+          artifact="dist/control-center-${version}-linux-amd64.tar.gz"
           (cd dist && sha256sum -c "control-center-${version}-linux-amd64.tar.gz.sha256")
+
+          verify_root="$(mktemp -d)"
+          trap 'rm -rf "$verify_root"' EXIT
+          tar -xzf "$artifact" -C "$verify_root"
+          bundle="$verify_root/control-center-${version}"
+
+          test -x "$bundle/bin/control-center"
+          test -x "$bundle/scripts/migrate.sh"
+          test -f "$bundle/deploy/systemd/control-center.service"
+          test -f "$bundle/VERSION"
+          test "$(tr -d '\r\n' < "$bundle/VERSION")" = "$version"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
