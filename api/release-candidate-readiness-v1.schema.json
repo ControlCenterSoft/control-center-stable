@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://control-center.pro/schemas/release-candidate-readiness-v1.schema.json",
-  "title": "Control Center 0.31 release candidate readiness v1",
+  "title": "Control Center 0.31.1 release candidate readiness v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,7 +27,7 @@
       "const": "sha256:02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2"
     },
     "candidate_version": {
-      "const": "0.31.0"
+      "const": "0.31.1"
     },
     "candidate_sha": {
       "type": "string",
@@ -35,7 +35,7 @@
     },
     "gates": {
       "type": "array",
-      "maxItems": 10,
+      "maxItems": 11,
       "items": {
         "$ref": "#/$defs/gateEvidence"
       }
@@ -59,6 +59,7 @@
             "candidate_artifact_packaging",
             "clean_install",
             "upgrade_from_stable_0_30",
+            "upgrade_from_stable_0_31",
             "rollback_forward_recovery",
             "postgres_restart_reconnect",
             "security_privacy",
