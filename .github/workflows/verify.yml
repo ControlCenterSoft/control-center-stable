@@ -113,6 +113,8 @@ jobs:
           artifact="dist/control-center-${version}-linux-amd64.tar.gz"
           bundle="control-center-${version}"
 
+          # The corrective package contract is strict: the actual 0.31.1 Linux
+          # archive must carry its executable migration runner and migrations.
           tar -tzf "$artifact" | grep -Fxq "${bundle}/scripts/migrate.sh"
           tar -tzf "$artifact" | grep -Eq "^${bundle}/migrations/[0-9]+.*\.up\.sql$"
 
@@ -133,7 +135,7 @@ jobs:
             sudo apt-get install -y postgresql-client
           fi
 
-          mkdir -p "$work/current" "$work/stable030"
+          mkdir -p "$work/current" "$work/stable030-source"
           tar -xzf "$artifact" -C "$work/current"
           current_root="$work/current/$bundle"
           test -x "$current_root/scripts/migrate.sh"
@@ -146,26 +148,35 @@ jobs:
           clean_count="$(PGDATABASE="$clean_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
           [[ "$clean_count" =~ ^[1-9][0-9]*$ ]]
 
+          # v0.30.0's published Linux binary predates the package-shape fix and
+          # cannot be required to contain a bundled migrate.sh. Use the immutable
+          # official v0.30.0 source release asset instead: it is release-bound,
+          # content-addressed, and contains the authoritative migration set/runner.
           stable_version=0.30.0
-          stable_asset_id=558184660
-          stable_sha256=02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2
-          stable_artifact="$work/control-center-${stable_version}-linux-amd64.tar.gz"
+          stable_source_asset_id=558184665
+          stable_source_sha256=515bafe1f7db5ed83a9128e234f64a052ff2ae7f41d5d30cd7cd0dbd3d2411d6
+          stable_source="$work/control-center-${stable_version}-source.tar.gz"
           curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 180 \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/octet-stream" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/ControlCenterSoft/control-center-stable/releases/assets/${stable_asset_id}" \
-            -o "$stable_artifact"
-          echo "$stable_sha256  $stable_artifact" | sha256sum -c -
-          tar -xzf "$stable_artifact" -C "$work/stable030"
-          stable_root="$work/stable030/control-center-${stable_version}"
-          test -x "$stable_root/scripts/migrate.sh"
+            "https://api.github.com/repos/ControlCenterSoft/control-center-stable/releases/assets/${stable_source_asset_id}" \
+            -o "$stable_source"
+          echo "$stable_source_sha256  $stable_source" | sha256sum -c -
+          tar -xzf "$stable_source" -C "$work/stable030-source"
+
+          stable_runner="$(find "$work/stable030-source" -type f -path '*/scripts/migrate.sh' -print -quit)"
+          test -n "$stable_runner"
+          stable_root="$(dirname "$(dirname "$stable_runner")")"
           test -d "$stable_root/migrations"
+          test -f "$stable_root/VERSION"
+          test "$(tr -d '\r\n' < "$stable_root/VERSION")" = "$stable_version"
 
           createdb "$upgrade_db"
-          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$stable_root/migrations" "$stable_root/scripts/migrate.sh"
+          PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$stable_root/migrations" sh "$stable_runner"
           stable_count="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
           [[ "$stable_count" =~ ^[1-9][0-9]*$ ]]
+
           PGDATABASE="$upgrade_db" MIGRATIONS_DIR="$current_root/migrations" "$current_root/scripts/migrate.sh"
           upgraded_count="$(PGDATABASE="$upgrade_db" psql -X -Atqc 'SELECT count(*) FROM schema_migrations')"
           [[ "$upgraded_count" -ge "$stable_count" ]]
@@ -175,7 +186,7 @@ jobs:
 
           echo "PACKAGE_MIGRATION_RUNNER=PASS"
           echo "PACKAGE_CLEAN_INSTALL=PASS"
-          echo "PACKAGE_UPGRADE_FROM_0_30=PASS"
+          echo "PACKAGE_UPGRADE_FROM_0_30_SOURCE_BASELINE=PASS"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
