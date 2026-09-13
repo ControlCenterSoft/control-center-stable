@@ -7,9 +7,9 @@
   "required": ["schema", "stable_version", "stable_tag", "stable_artifact_digest", "candidate_version", "candidate_sha", "gates"],
   "properties": {
     "schema": {"const": "control-center.release-candidate-readiness.v1"},
-    "stable_version": {"const": "0.30.0"},
-    "stable_tag": {"const": "v0.30.0"},
-    "stable_artifact_digest": {"const": "sha256:02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2"},
+    "stable_version": {"const": "0.31.0"},
+    "stable_tag": {"const": "v0.31.0"},
+    "stable_artifact_digest": {"const": "sha256:0b270edcf1d17bd6a38fa3f77b78c4112d43fb945582ee2d25cd91daf38cf06c"},
     "candidate_version": {"const": "0.31.1"},
     "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "gates": {
