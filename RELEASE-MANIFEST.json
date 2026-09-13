@@ -1,14 +1,14 @@
 {
   "schema": "control-center.stable-release.v2",
-  "version": "0.31.0",
-  "channel": "stable",
-  "source_tag": "v0.31.0",
-  "source_tag_commit": "c003d78f8b7aca0c8810a4267f5c95a36959fca1",
-  "promoted_candidate_commit": "e4fd4cb5941059cd5d77325340fc538bdf31f987",
-  "qualification_run_id": 34721199480,
-  "qualification_head_sha": "1a8841f5c62cc1c2420b9e5471b20449c260940b",
-  "qualification_result": "success",
-  "promotion_run_id": 34721411186,
-  "promotion_tree_commit": "31b4c0edb397e101f06321aa787a40995ad551a8",
-  "promotion_result": "success"
+  "version": "0.31.1",
+  "channel": "candidate",
+  "source_tag": "v0.31.1",
+  "source_tag_commit": null,
+  "promoted_candidate_commit": null,
+  "qualification_run_id": null,
+  "qualification_head_sha": null,
+  "qualification_result": "pending",
+  "promotion_run_id": null,
+  "promotion_tree_commit": null,
+  "promotion_result": "pending"
 }
