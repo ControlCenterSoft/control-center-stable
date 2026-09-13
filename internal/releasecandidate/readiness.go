@@ -7,9 +7,9 @@ import (
 
 const (
 	SchemaV1             = "control-center.release-candidate-readiness.v1"
-	StableVersion        = "0.30.0"
-	StableTag            = "v0.30.0"
-	StableArtifactDigest = "sha256:02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2"
+	StableVersion        = "0.31.0"
+	StableTag            = "v0.31.0"
+	StableArtifactDigest = "sha256:0b270edcf1d17bd6a38fa3f77b78c4112d43fb945582ee2d25cd91daf38cf06c"
 	CandidateVersion     = "0.31.1"
 )
 
