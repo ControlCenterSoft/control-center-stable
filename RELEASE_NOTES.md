@@ -1,42 +1,42 @@
-# Control Center 0.31.0 Stable
+# Control Center 0.31.1 — corrective release candidate
 
-Статус: **Public Stable**.
+Статус: **Release Candidate / не Public Stable до завершения qualification и публикации**.
 
-0.31.0 вводит основной безопасный operational workflow вокруг Changes и Jobs.
+0.31.1 — исправляющий patch для release/package path Control Center 0.31.x. Функциональное расширение продукта относительно 0.31.0 не является целью этого выпуска.
 
-## Что нового
+## Что исправляется
 
-- точная immutable revision Change, semantic diff и blast radius;
-- execution preflight и maintenance-window evidence;
-- approval evidence, привязанное к точной revision/hash;
-- durable Job lifecycle и timeline;
-- reconnect с version/ETag identity;
-- version-bound cancel и bounded manual retry с повторной revalidation;
-- terminal result и post-condition evidence;
-- recovery-path evidence и защита от false Success;
-- read-only Changes / Jobs operator view с fail-closed обработкой stale/incomplete evidence.
+- Linux runtime archive обязан содержать исполняемый `scripts/migrate.sh`;
+- packaging завершается fail-closed, если фактически созданный tar.gz не содержит обязательный binary, migration runner, systemd unit или корректный `VERSION`;
+- verification contract проверяет состав распакованного release archive, а не только его SHA-256;
+- machine-readable artifact contract и JSON Schema синхронизированы: обязательны binary archive, checksum, source archive, SBOM, third-party notices, provenance, qualification evidence, release manifest и `SHA256SUMS`;
+- qualification 0.31.1 отдельно требует upgrade path с 0.30.x и с текущей линии 0.31.0.
 
-## Информационная безопасность
+## Причина corrective patch
 
-- универсальный shell/command execution API не добавляется;
-- stale revision, approval или Job version не принимается как current;
-- неподтверждённый terminal result не становится Success;
-- secrets, credentials, raw Job input/output и lease material не входят в operator evidence;
-- браузерный auth flow сохраняет безопасный redirect/login boundary, а API продолжает возвращать машинно-читаемый 401 без HTML-редиректа;
-- публичные source/privacy boundaries и неизменяемость ранее опубликованных migrations проверяются fail-closed.
+Опубликованный `v0.31.0` остаётся неизменяемым, но его Linux runtime asset `control-center-0.31.0-linux-amd64.tar.gz` не содержит обязательный `scripts/migrate.sh`. Корректная SHA-256 подтверждает целостность опубликованного файла, но не корректность его package shape. Перезапись существующего tag/release/assets не допускается.
 
-## Upgrade, recovery и совместимость
+## Обязательная qualification перед Public Stable
 
-Release-candidate qualification подтверждала PostgreSQL 15–18 migration/adapter paths, static/unit/contracts/build, race/restart safety, upgrade/recovery semantics и воспроизводимую Linux AMD64 упаковку. Поддерживаемый upgrade design сохраняет данные, настройки и установленный пароль администратора.
+0.31.1 может стать Public Stable только после подтверждения всех release-blocking gates:
 
-### Известная проблема опубликованного Linux asset
+1. reproducible packaging и archive-membership contract;
+2. clean install;
+3. поддерживаемый `0.30.x → 0.31.1` upgrade;
+4. `0.31.0 → 0.31.1` recovery/update path;
+5. PostgreSQL migration/restart;
+6. сохранение данных, конфигурации и установленного пользователем пароля администратора;
+7. rollback/forward-recovery;
+8. security/privacy/public-source checks;
+9. checksums, manifest, provenance, SBOM и third-party notices;
+10. фактическая проверка публичного installer/update flow.
 
-После публикации `v0.31.0` выявлено расхождение формы фактического Linux runtime package с install/update contract: `control-center-0.31.0-linux-amd64.tar.gz` не содержит обязательный `scripts/migrate.sh`. Публичный installer и canonical updater ожидают этот файл внутри runtime archive и поэтому останавливаются fail-closed.
+До прохождения этих проверок текущим официальным Public Stable остаётся 0.31.0 с опубликованным known issue и безопасными ограничениями из `INSTALL.md`.
 
-Контрольная сумма опубликованного файла корректна, но она подтверждает целостность именно этого payload и не доказывает работоспособность install/upgrade path. Existing tag/release/assets `v0.31.0` не переписываются.
+## Аутентификация
 
-До corrective patch или отдельной квалифицированной exact-tag fallback procedure не считайте one-command clean install/update через Linux binary archive 0.31.0 поддерживаемым путём и не обходите migration-runner check вручную. Актуальная безопасная инструкция поддерживается в [INSTALL.md](INSTALL.md).
+При корректной чистой установке создаётся локальный пользователь `admin` с первоначальным паролем `admin`; при первом входе смена пароля обязательна. Обновление существующей установки не должно сбрасывать установленный пользователем пароль.
 
 ## Лицензирование компонентов
 
-Выпуск содержит machine-readable third-party manifest, лицензии зависимостей и `THIRD_PARTY_NOTICES.md`. Коммерческие договорные условия ведутся отдельно от технической квалификации продукта и не подменяются техническим release evidence.
+Release package должен включать machine-readable SBOM и `THIRD_PARTY_NOTICES.md`. Коммерческие договорные условия ведутся отдельно от технической qualification и не подменяют security, upgrade, recovery и release-identity gates.
