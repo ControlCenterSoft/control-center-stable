@@ -32,7 +32,7 @@ func TestRequiredArtifactNamesReturnsDefensiveCopy(t *testing.T) {
 	first := RequiredArtifactNames()
 	first[0] = "weakened"
 	second := RequiredArtifactNames()
-	if second[0] != "control-center-0.31.0-linux-amd64.tar.gz" {
+	if second[0] != "control-center-0.31.1-linux-amd64.tar.gz" {
 		t.Fatalf("RequiredArtifactNames() policy mutated through caller: %v", second)
 	}
 }
@@ -48,7 +48,7 @@ func TestValidateArtifactManifestRejectsMissingArtifact(t *testing.T) {
 
 func TestValidateArtifactManifestRejectsUnexpectedArtifact(t *testing.T) {
 	manifest := completeArtifactManifest()
-	manifest.Artifacts[0].Name = "control-center-0.31.0-unreviewed-extra.bin"
+	manifest.Artifacts[0].Name = "control-center-0.31.1-unreviewed-extra.bin"
 
 	if err := ValidateArtifactManifest(manifest); err == nil {
 		t.Fatal("ValidateArtifactManifest() error = nil, want unexpected artifact error")
