@@ -6,29 +6,36 @@
 
 ## Что исправляется в 0.31.1
 
-Linux AMD64 archive обязан содержать исполняемый `scripts/migrate.sh` вместе с migrations. Runner qualification должна распаковать фактический собранный archive, проверить member/executable bit и выполнить migration runner именно из package, а не из checkout tree.
+Linux AMD64 archive обязан содержать исполняемый `scripts/migrate.sh` вместе с migrations. Qualification должна распаковать фактический собранный archive, проверить member/executable bit и выполнить migration runner именно из package, а не из checkout tree.
 
 ## Обязательная package acceptance
 
 Перед publication 0.31.1 требуется подтвердить:
 
 1. archive checksum и release identity;
-2. наличие `scripts/migrate.sh` и migrations внутри фактического archive;
+2. наличие исполняемого `scripts/migrate.sh`, binary, systemd unit и корректного `VERSION` внутри фактического archive;
 3. clean install PostgreSQL через bundled migration runner;
-4. supported upgrade с опубликованного Stable 0.30.0 через migration runner обоих package;
-5. idempotent повтор migration без destructive downgrade;
-6. общие format/vet/unit/race/build/public-boundary gates;
-7. согласованность final release metadata/checksums/provenance после promotion.
+4. supported upgrade `0.30.0 → 0.31.1`;
+5. supported update/recovery path `0.31.0 → 0.31.1`, учитывающий известный package-shape defect 0.31.0 и использующий только проверенный immutable-tag migration runner;
+6. idempotent повтор migration без destructive downgrade;
+7. общие format/vet/unit/race/build/public-boundary gates;
+8. согласованность final release metadata/checksums/provenance/SBOM/third-party notices после promotion.
 
 ## Ограничение v0.31.0 сохраняется
 
 Tag и release assets `v0.31.0` не переписываются. До публикации квалифицированного corrective patch:
 
 - не начинайте clean install через опубликованный 0.31.0 Linux binary archive;
-- не используйте этот archive для штатного upgrade;
-- не обходите migration-runner check вручную;
+- не используйте этот archive как непроверенный штатный upgrade source;
+- не подменяйте migration runner произвольным файлом;
 - сохраняйте текущую работоспособную установку и recovery point.
+
+Если для 0.31.0 используется официальный compatibility path, migration runner должен быть получен только из того же immutable tag `v0.31.0` и принят только после проверки закреплённой SHA-256.
 
 ## Аутентификация
 
-При корректной чистой установке создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход требует обязательной смены пароля. Supported upgrade сохраняет установленный пользователем пароль и пользовательские данные.
+При корректной чистой установке создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход требует обязательной смены пароля. Supported upgrade сохраняет установленный пользователем пароль, пользовательские данные и конфигурацию.
+
+## Recovery
+
+Перед обновлением требуется рабочая резервная копия и проверяемая точка восстановления. Успех upgrade подтверждается только после migrations, restart и health/version verification. При неуспешной проверке применяется предусмотренный rollback/forward-recovery path, а не ручная подмена release payload.
