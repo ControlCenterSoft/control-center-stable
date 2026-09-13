@@ -10,7 +10,7 @@ const (
 	StableVersion        = "0.30.0"
 	StableTag            = "v0.30.0"
 	StableArtifactDigest = "sha256:02d15e8ff13bbcb52b6d0c9293ab8804500991fbb41c8b575e88306a8a5ce0f2"
-	CandidateVersion     = "0.31.0"
+	CandidateVersion     = "0.31.1"
 )
 
 type GateID string
@@ -21,6 +21,7 @@ const (
 	GatePackaging          GateID = "candidate_artifact_packaging"
 	GateCleanInstall       GateID = "clean_install"
 	GateUpgradeFromStable  GateID = "upgrade_from_stable_0_30"
+	GateUpgradeFrom031     GateID = "upgrade_from_stable_0_31"
 	GateRollbackRecovery   GateID = "rollback_forward_recovery"
 	GatePostgresRestart    GateID = "postgres_restart_reconnect"
 	GateSecurityPrivacy    GateID = "security_privacy"
@@ -34,6 +35,7 @@ var requiredGates = [...]GateID{
 	GatePackaging,
 	GateCleanInstall,
 	GateUpgradeFromStable,
+	GateUpgradeFrom031,
 	GateRollbackRecovery,
 	GatePostgresRestart,
 	GateSecurityPrivacy,
@@ -41,31 +43,23 @@ var requiredGates = [...]GateID{
 	GateReleaseMetadata,
 }
 
-// productStableRequiredGates contains the product-release gates required by the
-// canonical Public Stable policy. Commercial/legal clearance is deliberately a
-// separate commercial-launch track: an incomplete commercial package must not
-// weaken technical safety, but it does not block publication of a technically
-// qualified product release.
 var productStableRequiredGates = [...]GateID{
 	GateManualRetryLineage,
 	GateOperationalE2E,
 	GatePackaging,
 	GateCleanInstall,
 	GateUpgradeFromStable,
+	GateUpgradeFrom031,
 	GateRollbackRecovery,
 	GatePostgresRestart,
 	GateSecurityPrivacy,
 	GateReleaseMetadata,
 }
 
-// RequiredGates returns a defensive copy of the full commercial-readiness gate
-// set so callers cannot weaken that policy by mutating package-level state.
 func RequiredGates() []GateID {
 	return append([]GateID(nil), requiredGates[:]...)
 }
 
-// ProductStableRequiredGates returns a defensive copy of the technical
-// product-release gate set used for Public Stable publication.
 func ProductStableRequiredGates() []GateID {
 	return append([]GateID(nil), productStableRequiredGates[:]...)
 }
@@ -160,7 +154,6 @@ func evaluateRequired(snapshot Snapshot, required []GateID) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-
 	result := Result{}
 	for _, gate := range required {
 		evidence, ok := seen[gate]
@@ -172,17 +165,10 @@ func evaluateRequired(snapshot Snapshot, required []GateID) (Result, error) {
 	return result, nil
 }
 
-// Evaluate aggregates the complete commercial-readiness gate set. It does not
-// execute checks, build artifacts, mutate a release, trigger CI, deploy
-// software or grant publication authority.
 func Evaluate(snapshot Snapshot) (Result, error) {
 	return evaluateRequired(snapshot, requiredGates[:])
 }
 
-// EvaluateProductStable evaluates the canonical Public Stable product-release
-// policy. Commercial/legal evidence is still validated when present and may be
-// reported separately, but only technical correctness gates determine whether
-// the product is ready for Public Stable publication.
 func EvaluateProductStable(snapshot Snapshot) (Result, error) {
 	return evaluateRequired(snapshot, productStableRequiredGates[:])
 }
