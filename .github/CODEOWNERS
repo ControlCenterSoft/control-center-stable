@@ -1,0 +1,9 @@
+# Default ownership
+* @ControlCenterSoft
+
+# Security- and release-sensitive paths
+/.github/workflows/ @ControlCenterSoft
+/deploy/ @ControlCenterSoft
+/migrations/ @ControlCenterSoft
+/scripts/ @ControlCenterSoft
+/VERSION @ControlCenterSoft
