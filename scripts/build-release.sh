@@ -22,7 +22,8 @@ build_time="$(date -u -d "@$source_date_epoch" +%Y-%m-%dT%H:%M:%SZ)"
 dist_dir="${DIST_DIR:-$repo_root/dist}"
 mkdir -p "$dist_dir"
 stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
+verify_root="$(mktemp -d)"
+trap 'rm -rf "$stage" "$verify_root"' EXIT
 
 bundle="control-center-$version"
 mkdir -p \
@@ -58,5 +59,31 @@ chmod 0755 "$stage/$bundle/bin/control-center" "$stage/$bundle/scripts/migrate.s
 artifact="$dist_dir/$bundle-linux-amd64.tar.gz"
 tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 \
   --numeric-owner -C "$stage" -czf "$artifact" "$bundle"
+
+# Publication must fail closed when the archive shape no longer satisfies the
+# install/update contract. This verifies the bytes that will actually be
+# checksummed and published rather than only the staging directory.
+tar -xzf "$artifact" -C "$verify_root"
+[[ -x "$verify_root/$bundle/bin/control-center" ]] || {
+  printf 'release archive does not contain executable %s/bin/control-center\n' "$bundle" >&2
+  exit 3
+}
+[[ -x "$verify_root/$bundle/scripts/migrate.sh" ]] || {
+  printf 'release archive does not contain executable %s/scripts/migrate.sh\n' "$bundle" >&2
+  exit 3
+}
+[[ -f "$verify_root/$bundle/deploy/systemd/control-center.service" ]] || {
+  printf 'release archive does not contain %s/deploy/systemd/control-center.service\n' "$bundle" >&2
+  exit 3
+}
+[[ -f "$verify_root/$bundle/VERSION" ]] || {
+  printf 'release archive does not contain %s/VERSION\n' "$bundle" >&2
+  exit 3
+}
+[[ "$(tr -d '\r\n' < "$verify_root/$bundle/VERSION")" == "$version" ]] || {
+  printf 'release archive VERSION does not match %s\n' "$version" >&2
+  exit 3
+}
+
 (cd "$dist_dir" && sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256")
 printf '%s\n' "$artifact" "$artifact.sha256"
