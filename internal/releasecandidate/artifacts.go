@@ -2,22 +2,22 @@ package releasecandidate
 
 import "fmt"
 
-var requiredArtifactNames = [...]string{
-	"control-center-0.31.0-linux-amd64.tar.gz",
-	"control-center-0.31.0-linux-amd64.tar.gz.sha256",
-	"control-center-0.31.0-source.tar.gz",
-	"control-center-0.31.0.sbom.cdx.json",
-	"THIRD_PARTY_NOTICES.md",
-	"control-center-0.31.0.provenance.json",
-	"control-center-0.31.0.qualification.json",
-	"control-center-0.31.0.release-manifest.json",
-	"SHA256SUMS",
-}
-
-// RequiredArtifactNames returns a defensive copy so callers cannot weaken the
-// expected candidate bundle by mutating package-level state.
+// RequiredArtifactNames returns the exact bounded artifact set for the current
+// candidate identity. Version-derived names prevent a corrective patch from
+// inheriting a stale release number while keeping the allowed set fail-closed.
 func RequiredArtifactNames() []string {
-	return append([]string(nil), requiredArtifactNames[:]...)
+	version := CandidateVersion
+	return []string{
+		fmt.Sprintf("control-center-%s-linux-amd64.tar.gz", version),
+		fmt.Sprintf("control-center-%s-linux-amd64.tar.gz.sha256", version),
+		fmt.Sprintf("control-center-%s-source.tar.gz", version),
+		fmt.Sprintf("control-center-%s.sbom.cdx.json", version),
+		"THIRD_PARTY_NOTICES.md",
+		fmt.Sprintf("control-center-%s.provenance.json", version),
+		fmt.Sprintf("control-center-%s.qualification.json", version),
+		fmt.Sprintf("control-center-%s.release-manifest.json", version),
+		"SHA256SUMS",
+	}
 }
 
 type ArtifactEvidence struct {
@@ -35,7 +35,7 @@ type ArtifactManifest struct {
 const ArtifactManifestSchemaV1 = "control-center.release-candidate-artifacts.v1"
 
 // ValidateArtifactManifest verifies only the bounded identity and expected file
-// set for a future 0.31 candidate bundle. It does not create, download, sign,
+// set for the current candidate bundle. It does not create, download, sign,
 // publish or qualify any artifact.
 func ValidateArtifactManifest(manifest ArtifactManifest) error {
 	if manifest.Schema != ArtifactManifestSchemaV1 {
@@ -48,8 +48,9 @@ func ValidateArtifactManifest(manifest ArtifactManifest) error {
 		return fmt.Errorf("invalid candidate sha")
 	}
 
-	required := make(map[string]struct{}, len(requiredArtifactNames))
-	for _, name := range requiredArtifactNames {
+	requiredNames := RequiredArtifactNames()
+	required := make(map[string]struct{}, len(requiredNames))
+	for _, name := range requiredNames {
 		required[name] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(manifest.Artifacts))
@@ -65,7 +66,7 @@ func ValidateArtifactManifest(manifest ArtifactManifest) error {
 		}
 		seen[artifact.Name] = struct{}{}
 	}
-	for _, name := range requiredArtifactNames {
+	for _, name := range requiredNames {
 		if _, ok := seen[name]; !ok {
 			return fmt.Errorf("required candidate artifact %q is missing", name)
 		}
