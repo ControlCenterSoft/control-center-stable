@@ -1,36 +1,26 @@
-# Control Center 0.31.1 — corrective package qualification
+# Control Center 0.31.1 — установка и обновление
 
-Текущий опубликованный Public Stable — **0.31.0**, однако его Linux binary asset имеет известный packaging blocker: архив не содержит обязательный `scripts/migrate.sh`, поэтому общий binary install/update path для этого asset не считается самостоятельным подтверждённым путём.
+Текущий официальный Public Stable — **0.31.1**. Поддерживаемая платформа текущего package — Linux AMD64 с systemd и PostgreSQL 15, 16, 17 или 18. Для удалённого доступа используйте защищённую TLS-терминацию.
 
-0.31.1 является корректирующим Stable-candidate. Фактический candidate archive уже формируется с обязательным `scripts/migrate.sh`, а package-shape и clean-install acceptance выполняются на собранном package. До завершения поддерживаемых upgrade/recovery проверок, финальной qualification и публикации `v0.31.1` версия не является пользовательски доступным Stable-релизом.
+## Рекомендуемый путь установки
 
-## Что исправляется в 0.31.1
+Используйте официальный Stable-канал и опубликованный `v0.31.1` Linux archive либо публичный bootstrap, который разрешает текущий latest Stable. Перед установкой обязательно проверяйте SHA-256 и release identity.
 
-Linux AMD64 archive обязан содержать исполняемый `scripts/migrate.sh` вместе с migrations. Release qualification должна распаковать фактический собранный archive, проверить наличие файла и executable bit и выполнить migration runner именно из package, а не из исходного дерева.
+Linux archive 0.31.1 содержит обязательные `bin/control-center`, `scripts/migrate.sh`, migrations и systemd unit. Package shape, clean install и повторное применение migrations проверены fail-closed.
 
-## Обязательная package acceptance
+## Обновление
 
-Перед publication 0.31.1 требуется подтвердить:
+Для 0.31.1 подтверждены поддерживаемые переходы:
 
-1. archive checksum и release identity;
-2. наличие `scripts/migrate.sh` и migrations внутри фактического archive;
-3. clean install PostgreSQL через bundled migration runner;
-4. поддерживаемый upgrade с официального предыдущего Stable baseline с использованием неизменяемого официального source/release evidence и bundled migration runner 0.31.1;
-5. поддерживаемый переход с уже установленной 0.31.0 на 0.31.1, где этот путь применим;
-6. idempotent повтор migrations без destructive downgrade;
-7. общие format/vet/unit/race/build/public-boundary gates;
-8. сохранение данных, конфигурации и установленного пароля администратора;
-9. rollback/forward-recovery и согласованность final release metadata/checksums/provenance/SBOM.
+- `0.30.0 → 0.31.1`;
+- `0.31.0 → 0.31.1` с учётом известного исторического package-shape defect 0.31.0.
 
-## Ограничение v0.31.0 сохраняется
+Перед обновлением создайте проверенный recovery point. Обновление не должно сбрасывать установленный пользователем пароль `admin`, пользовательские данные или конфигурацию. При ошибке migration/health не продолжайте rollout и используйте документированный rollback/forward-recovery path.
 
-Tag и release assets `v0.31.0` не переписываются. До публикации квалифицированного corrective patch:
+## Историческое ограничение 0.31.0
 
-- не выполняйте ручной clean install непосредственно из опубликованного 0.31.0 Linux binary archive;
-- не обходите проверку migration runner вручную;
-- для exact v0.31.0 используйте только отдельно квалифицированный compatibility path с проверкой release checksum и закреплённого digest migration runner;
-- сохраняйте текущую работоспособную установку и recovery point.
+Опубликованный `control-center-0.31.0-linux-amd64.tar.gz` не содержит `scripts/migrate.sh`. Release `v0.31.0` остаётся неизменяемым и не переписывается. Для систем, которые ещё используют exact 0.31.0 compatibility path, применяйте только ранее квалифицированную fail-closed процедуру; для новых установок и обычных обновлений используйте 0.31.1.
 
-## Аутентификация
+## Первый вход
 
-При корректной чистой установке создаётся локальный пользователь `admin` с первоначальным паролем `admin`. Первый вход требует обязательной смены пароля. Поддерживаемый upgrade сохраняет установленный пользователем пароль и пользовательские данные.
+При чистой установке создаётся локальный пользователь `admin` с первоначальным паролем `admin`. При первом входе пароль обязательно меняется; до смены обычная работа запрещена. При обновлении существующий пользовательский пароль сохраняется.
