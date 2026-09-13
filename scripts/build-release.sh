@@ -58,5 +58,12 @@ chmod 0755 "$stage/$bundle/bin/control-center" "$stage/$bundle/scripts/migrate.s
 artifact="$dist_dir/$bundle-linux-amd64.tar.gz"
 tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 \
   --numeric-owner -C "$stage" -czf "$artifact" "$bundle"
+
+# Artifact integrity is not enough: the public installer/updater relies on an
+# exact runtime package shape. Verify the archive itself before writing a
+# checksum so a structurally incomplete payload can never become a qualified
+# release asset merely because its digest is internally consistent.
+bash scripts/verify-release-archive.sh "$artifact" "$version"
+
 (cd "$dist_dir" && sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256")
 printf '%s\n' "$artifact" "$artifact.sha256"
