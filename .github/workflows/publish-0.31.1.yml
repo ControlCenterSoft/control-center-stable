@@ -1,0 +1,201 @@
+name: Publish Control Center 0.31.1 Public Stable
+
+on:
+  workflow_run:
+    workflows:
+      - Verify Control Center Stable
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: control-center-0.31.1-public-stable
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact qualified main revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate immutable publication identity
+        id: release
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" == '0.31.1' ]] || { echo "publisher is scoped only to 0.31.1" >&2; exit 2; }
+          test -f docs/PUBLIC_RELEASE_0.31.1_RU.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download exact-run qualified binary artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist/qualified
+          gh run download "$QUALIFIED_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "control-center-stable-${RELEASE_SHA}" \
+            --dir dist/qualified
+          test -f dist/qualified/control-center-0.31.1-linux-amd64.tar.gz
+          test -f dist/qualified/control-center-0.31.1-linux-amd64.tar.gz.sha256
+
+      - name: Prepare exact nine-file Public Stable set
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
+          QUALIFIED_ARTIFACT_DIR: ${{ github.workspace }}/dist/qualified
+        run: |
+          set -Eeuo pipefail
+          bash scripts/prepare-public-stable-0311.sh
+
+      - name: Publish or safely complete exact release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          out="dist/public-stable-${RELEASE_VERSION}"
+          notes="docs/PUBLIC_RELEASE_0.31.1_RU.md"
+          test -d "$out"
+
+          tag_sha=""
+          if existing_tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object.sha' 2>/dev/null)"; then
+            tag_sha="$existing_tag_sha"
+          fi
+          if [[ -n "$tag_sha" && "$tag_sha" != "$RELEASE_SHA" ]]; then
+            echo "${RELEASE_TAG} already points to ${tag_sha}, expected ${RELEASE_SHA}" >&2
+            exit 1
+          fi
+          if [[ -z "$tag_sha" ]]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${RELEASE_TAG}" \
+              -f sha="$RELEASE_SHA" >/dev/null
+          fi
+
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Control Center ${RELEASE_VERSION}" \
+              --notes-file "$notes" \
+              --verify-tag
+          fi
+
+          release_json="$RUNNER_TEMP/release-before.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "$release_json"
+          python3 - "$release_json" "$out" "$RELEASE_TAG" "$RELEASE_SHA" "$RUNNER_TEMP/missing-assets.txt" <<'PY'
+          import hashlib,json,pathlib,sys
+          release_path,out_dir,tag,sha,missing_path=sys.argv[1:]
+          data=json.loads(pathlib.Path(release_path).read_text(encoding="utf-8"))
+          if data.get("tag_name") != tag or data.get("draft") is not False or data.get("prerelease") is not False:
+              raise SystemExit("release metadata is not stable")
+          out=pathlib.Path(out_dir)
+          expected=[
+              f"control-center-{tag[1:]}-linux-amd64.tar.gz",
+              f"control-center-{tag[1:]}-linux-amd64.tar.gz.sha256",
+              f"control-center-{tag[1:]}-source.tar.gz",
+              f"control-center-{tag[1:]}.sbom.cdx.json",
+              "THIRD_PARTY_NOTICES.md",
+              f"control-center-{tag[1:]}.provenance.json",
+              f"control-center-{tag[1:]}.qualification.json",
+              f"control-center-{tag[1:]}.release-manifest.json",
+              "SHA256SUMS",
+          ]
+          expected_set=set(expected)
+          seen={}
+          for asset in data.get("assets",[]):
+              name=asset.get("name")
+              if name not in expected_set:
+                  raise SystemExit(f"unexpected existing release asset: {name}")
+              if name in seen:
+                  raise SystemExit(f"duplicate existing release asset: {name}")
+              path=out/name
+              digest="sha256:"+hashlib.sha256(path.read_bytes()).hexdigest()
+              if asset.get("digest") != digest:
+                  raise SystemExit(f"existing asset digest mismatch: {name}")
+              seen[name]=digest
+          missing=[name for name in expected if name not in seen]
+          pathlib.Path(missing_path).write_text("".join(name+"\n" for name in missing),encoding="utf-8")
+          PY
+
+          while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            gh release upload "$RELEASE_TAG" "$out/$name" --repo "$GITHUB_REPOSITORY"
+          done < "$RUNNER_TEMP/missing-assets.txt"
+
+      - name: Verify published tag, metadata and exact asset digests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          out="dist/public-stable-${RELEASE_VERSION}"
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object.sha')"
+          [[ "$tag_sha" == "$RELEASE_SHA" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "$RUNNER_TEMP/release-final.json"
+          python3 - "$RUNNER_TEMP/release-final.json" "$out" "$RELEASE_TAG" <<'PY'
+          import hashlib,json,pathlib,sys
+          release_path,out_dir,tag=sys.argv[1:]
+          data=json.loads(pathlib.Path(release_path).read_text(encoding="utf-8"))
+          if data.get("tag_name") != tag or data.get("draft") is not False or data.get("prerelease") is not False:
+              raise SystemExit("published release is not stable")
+          version=tag[1:]
+          expected=[
+              f"control-center-{version}-linux-amd64.tar.gz",
+              f"control-center-{version}-linux-amd64.tar.gz.sha256",
+              f"control-center-{version}-source.tar.gz",
+              f"control-center-{version}.sbom.cdx.json",
+              "THIRD_PARTY_NOTICES.md",
+              f"control-center-{version}.provenance.json",
+              f"control-center-{version}.qualification.json",
+              f"control-center-{version}.release-manifest.json",
+              "SHA256SUMS",
+          ]
+          assets=data.get("assets",[])
+          if sorted(asset.get("name") for asset in assets) != sorted(expected):
+              raise SystemExit("published asset set is incomplete or unexpected")
+          out=pathlib.Path(out_dir)
+          for asset in assets:
+              name=asset["name"]
+              digest="sha256:"+hashlib.sha256((out/name).read_bytes()).hexdigest()
+              if asset.get("digest") != digest:
+                  raise SystemExit(f"published digest mismatch: {name}")
+          print("PUBLIC_STABLE_RELEASE=PASS")
+          PY
