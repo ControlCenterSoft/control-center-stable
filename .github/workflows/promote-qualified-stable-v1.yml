@@ -146,13 +146,19 @@ jobs:
           source=pathlib.Path(sys.argv[1]); evidence=pathlib.Path(sys.argv[2]); root=pathlib.Path.cwd()
           version=os.environ['VERSION']; old=os.environ['STABLE_BASE_VERSION']; public_base=os.environ['PUBLIC_BASE']; source_sha=os.environ['SOURCE_SHA']; public_ci=int(os.environ['PUBLIC_CI_RUN_ID'])
 
-          # Stable-owned control-plane payload must survive replacement of managed source trees.
-          stable_owned_paths=['internal/releasecandidate/stable_promotion_contract_test.go']
-          stable_owned_payloads={}
-          for rel in stable_owned_paths:
+          # The Stable release-control package is owned by the Stable repository.
+          # Development's qualification contracts intentionally depend on internal
+          # workflows/scripts that must not be exported into Public Stable.
+          stable_owned_dirs=['internal/releasecandidate']
+          stable_owned_backup_root=pathlib.Path(os.environ['RUNNER_TEMP'])/'stable-owned-control-plane'
+          for rel in stable_owned_dirs:
               path=root/rel
-              if not path.is_file() or path.is_symlink(): raise SystemExit(f'STABLE_OWNED_TOOLING_MISSING:{rel}')
-              stable_owned_payloads[rel]=path.read_bytes()
+              if not path.is_dir() or path.is_symlink(): raise SystemExit(f'STABLE_OWNED_DIR_MISSING:{rel}')
+              for p in path.rglob('*'):
+                  if p.is_symlink(): raise SystemExit(f'STABLE_OWNED_DIR_SYMLINK_REJECTED:{p.relative_to(root).as_posix()}')
+              backup=stable_owned_backup_root/rel
+              backup.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copytree(path, backup)
 
           managed_dirs=['cmd','internal','api','config','migrations','third_party']
           managed_root_files=['go.mod','go.sum','Makefile','Dockerfile','.dockerignore','.editorconfig','.env.example','.gitignore','THIRD_PARTY_NOTICES.md','VERSION']
@@ -168,11 +174,15 @@ jobs:
               if not src.is_file() or src.is_symlink(): raise SystemExit(f'SOURCE_MANAGED_FILE_MISSING:{rel}')
               shutil.copy2(src, root/rel)
 
-          # Restore Stable-owned control-plane payload after importing Development's managed trees.
-          for rel, payload in stable_owned_payloads.items():
+          # Restore the complete Stable-owned release-control package after the
+          # Development product tree has been imported.
+          for rel in stable_owned_dirs:
               path=root/rel
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_bytes(payload)
+              backup=stable_owned_backup_root/rel
+              shutil.rmtree(path, ignore_errors=True)
+              shutil.copytree(backup, path)
+          for leaked in (root/'internal/releasecandidate').glob('release*_contract_test.go'):
+              raise SystemExit(f'DEVELOPMENT_RELEASE_CONTRACT_LEAKED:{leaked.name}')
 
           src_systemd=source/'deploy/systemd'
           if not src_systemd.is_dir(): raise SystemExit('SOURCE_SYSTEMD_MISSING')
