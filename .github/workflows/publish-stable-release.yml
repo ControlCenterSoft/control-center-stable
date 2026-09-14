@@ -1,0 +1,187 @@
+name: Publish verified Control Center Stable
+
+on:
+  workflow_run:
+    workflows:
+      - Verify Control Center Stable
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: control-center-public-stable-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'ControlCenterSoft/control-center-stable' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      VERIFY_RUN_ID: ${{ github.event.workflow_run.id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact verified Stable revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require exact current Stable main
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA" || { echo STABLE_VERIFIED_SHA_MISMATCH >&2; exit 66; }
+          main_record="$(git ls-remote --exit-code origin refs/heads/main)" || { echo STABLE_MAIN_IDENTITY_CHECK_FAILED >&2; exit 66; }
+          [[ "$main_record" == "$RELEASE_SHA"$'\trefs/heads/main' ]] || { echo STABLE_VERIFY_STALE_MAIN >&2; exit 66; }
+
+      - name: Resolve Stable release identity
+        id: identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo STABLE_VERSION_REJECTED >&2; exit 66; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$version" > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            echo "existing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "existing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify immutable already-published Stable
+        if: steps.identity.outputs.existing == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          TAG: ${{ steps.identity.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          release="$(cat "$RUNNER_TEMP/existing-release.json")"
+          test "$(jq -r .draft <<<"$release")" = false || { echo RELEASE_DRIFT_DRAFT >&2; exit 66; }
+          test "$(jq -r .prerelease <<<"$release")" = false || { echo RELEASE_DRIFT_PRERELEASE >&2; exit 66; }
+          test "$(jq -r .tag_name <<<"$release")" = "$TAG" || { echo RELEASE_DRIFT_TAG >&2; exit 66; }
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          tag_commit="$(git rev-parse "$TAG^{commit}")"
+          git merge-base --is-ancestor "$tag_commit" "$RELEASE_SHA" || { echo RELEASE_DRIFT_TAG_NOT_ANCESTOR >&2; exit 66; }
+          test "$(git show "$tag_commit:VERSION" | tr -d '[:space:]')" = "$VERSION" || { echo RELEASE_DRIFT_TAG_VERSION >&2; exit 66; }
+          assets="$(jq -r '.assets[].name' <<<"$release")"
+          grep -Fxq "control-center-$VERSION-linux-amd64.tar.gz" <<<"$assets" || { echo RELEASE_DRIFT_RUNTIME_ASSET_MISSING >&2; exit 66; }
+          grep -Fxq "control-center-$VERSION-linux-amd64.tar.gz.sha256" <<<"$assets" || { echo RELEASE_DRIFT_SIDECAR_MISSING >&2; exit 66; }
+          echo "STABLE_RELEASE_ALREADY_PUBLISHED_IMMUTABLE version=$VERSION tag_commit=$tag_commit" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify promotion provenance and publication authority
+        if: steps.identity.outputs.existing != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          test -s APPROVED-SOURCE.json || { echo APPROVED_SOURCE_MISSING >&2; exit 66; }
+          test -s RELEASE-MANIFEST.json || { echo STABLE_RELEASE_MANIFEST_MISSING >&2; exit 66; }
+          python3 - "$VERSION" "$RELEASE_SHA" <<'PY'
+          import json,re,sys
+          version,stable_sha=sys.argv[1:]
+          approved=json.load(open('APPROVED-SOURCE.json',encoding='utf-8'))
+          manifest=json.load(open('RELEASE-MANIFEST.json',encoding='utf-8'))
+          source_sha=approved.get('source_revision','')
+          if approved.get('schema')!='control-center.approved-source-provenance.v1': raise SystemExit('APPROVED_SOURCE_SCHEMA_REJECTED')
+          if approved.get('version')!=version or approved.get('qualification_status')!='PASS': raise SystemExit('APPROVED_SOURCE_IDENTITY_REJECTED')
+          if approved.get('source_repository')!='ControlCenterSoft/control-center-development' or not re.fullmatch(r'[0-9a-f]{40}',source_sha): raise SystemExit('APPROVED_SOURCE_REVISION_REJECTED')
+          if manifest.get('schema')!='control-center.stable-release.v3' or manifest.get('version')!=version or manifest.get('channel')!='stable': raise SystemExit('STABLE_MANIFEST_IDENTITY_REJECTED')
+          if manifest.get('qualification_result')!='success' or manifest.get('publication_authority') is not True: raise SystemExit('STABLE_PUBLICATION_NOT_AUTHORIZED')
+          if manifest.get('approved_source_repository')!=approved.get('source_repository') or manifest.get('approved_source_revision')!=source_sha: raise SystemExit('STABLE_APPROVED_SOURCE_DRIFT')
+          if manifest.get('source_tag')!=f'v{version}' or manifest.get('source_commit')!=source_sha: raise SystemExit('STABLE_SOURCE_IDENTITY_DRIFT')
+          print(source_sha)
+          PY
+          source_sha="$(jq -r .source_revision APPROVED-SOURCE.json)"
+          source_ref="$(gh api "repos/ControlCenterSoft/control-center-development/git/ref/tags/v$VERSION" --jq '.object.sha')" || { echo APPROVED_SOURCE_TAG_UNAVAILABLE >&2; exit 66; }
+          test "$source_ref" = "$source_sha" || { echo RELEASE_DRIFT_APPROVED_SOURCE_TAG >&2; exit 66; }
+          source_release="$(gh api "repos/ControlCenterSoft/control-center-development/releases/tags/v$VERSION")" || { echo APPROVED_SOURCE_RELEASE_UNAVAILABLE >&2; exit 66; }
+          test "$(jq -r .draft <<<"$source_release")" = false
+          test "$(jq -r .prerelease <<<"$source_release")" = false
+
+      - name: Set up Go
+        if: steps.identity.outputs.existing != 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build reproducible Stable release assets
+        if: steps.identity.outputs.existing != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          epoch="$(git show -s --format=%ct "$RELEASE_SHA")"
+          DIST_DIR="$RUNNER_TEMP/release-a" SOURCE_DATE_EPOCH="$epoch" COMMIT="$RELEASE_SHA" bash scripts/build-release.sh
+          DIST_DIR="$RUNNER_TEMP/release-b" SOURCE_DATE_EPOCH="$epoch" COMMIT="$RELEASE_SHA" bash scripts/build-release.sh
+          cmp "$RUNNER_TEMP/release-a/control-center-$VERSION-linux-amd64.tar.gz" "$RUNNER_TEMP/release-b/control-center-$VERSION-linux-amd64.tar.gz"
+          cmp "$RUNNER_TEMP/release-a/control-center-$VERSION-linux-amd64.tar.gz.sha256" "$RUNNER_TEMP/release-b/control-center-$VERSION-linux-amd64.tar.gz.sha256"
+          mkdir -p dist/stable-release
+          cp "$RUNNER_TEMP/release-a/control-center-$VERSION-linux-amd64.tar.gz" dist/stable-release/
+          cp "$RUNNER_TEMP/release-a/control-center-$VERSION-linux-amd64.tar.gz.sha256" dist/stable-release/
+          git archive --format=tar --prefix="control-center-$VERSION-source/" "$RELEASE_SHA" | gzip -n > "dist/stable-release/control-center-$VERSION-source.tar.gz"
+          cp APPROVED-SOURCE.json "dist/stable-release/control-center-$VERSION.approved-source.json"
+          cp RELEASE-MANIFEST.json "dist/stable-release/control-center-$VERSION.release-manifest.json"
+          python3 - "$VERSION" "$RELEASE_SHA" "$VERIFY_RUN_ID" <<'PY'
+          import hashlib,json,pathlib,sys
+          version,sha,run=sys.argv[1:]
+          root=pathlib.Path('dist/stable-release')
+          def d(name): return 'sha256:'+hashlib.sha256((root/name).read_bytes()).hexdigest()
+          q={
+            'schema':'control-center.stable-qualification.v1','status':'PASS','version':version,
+            'stable_revision':sha,'stable_verify_run_id':int(run),
+            'approved_source_revision':json.load(open('APPROVED-SOURCE.json',encoding='utf-8'))['source_revision'],
+            'publication_authority':True,
+          }
+          (root/f'control-center-{version}.qualification.json').write_text(json.dumps(q,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          p={
+            'schema':'control-center.stable-provenance.v1','version':version,'stable_revision':sha,
+            'source_repository':'ControlCenterSoft/control-center-stable',
+            'approved_source_revision':q['approved_source_revision'],
+            'subjects':{
+              f'control-center-{version}-linux-amd64.tar.gz':d(f'control-center-{version}-linux-amd64.tar.gz'),
+              f'control-center-{version}-source.tar.gz':d(f'control-center-{version}-source.tar.gz'),
+            }
+          }
+          (root/f'control-center-{version}.provenance.json').write_text(json.dumps(p,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          PY
+          (cd dist/stable-release && sha256sum * > SHA256SUMS && sha256sum -c SHA256SUMS)
+
+      - name: Publish exact verified Stable release
+        if: steps.identity.outputs.existing != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          TAG: ${{ steps.identity.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          main_record="$(git ls-remote --exit-code origin refs/heads/main)"
+          [[ "$main_record" == "$RELEASE_SHA"$'\trefs/heads/main' ]] || { echo RELEASE_DRIFT_MAIN_MOVED >&2; exit 66; }
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo RELEASE_DRIFT_TAG_PREEXISTS >&2
+            exit 66
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$RELEASE_SHA" >/dev/null
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Control Center $VERSION" --notes-file RELEASE_NOTES.md dist/stable-release/*
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG")"
+          test "$(jq -r .draft <<<"$release")" = false
+          test "$(jq -r .prerelease <<<"$release")" = false
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-parse "$TAG^{commit}")" = "$RELEASE_SHA" || { echo RELEASE_DRIFT_POST_PUBLISH_TAG >&2; exit 66; }
+          echo "CONTROL_CENTER_PUBLIC_STABLE=PUBLISHED version=$VERSION stable_sha=$RELEASE_SHA approved_source=$(jq -r .source_revision APPROVED-SOURCE.json)" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,257 @@
+name: Prepare qualified Control Center stable promotion v1
+
+on:
+  create:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: control-center-stable-promotion-v1-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'ControlCenterSoft/control-center-stable' &&
+      github.ref_type == 'branch' &&
+      startsWith(github.ref_name, 'promote1/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SOURCE_REPOSITORY: ControlCenterSoft/control-center-development
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact Stable promotion base
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          ref: ${{ github.sha }}
+
+      - name: Resolve and prove qualified source identity
+        id: identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          fail() { echo "$1" >&2; exit 66; }
+          version="${GITHUB_REF_NAME#promote1/}"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail PROMOTION_VERSION_REJECTED
+          stable_base_version="$(tr -d '[:space:]' < VERSION)"
+          [[ "$stable_base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail STABLE_BASE_VERSION_REJECTED
+          python3 - "$stable_base_version" "$version" <<'PY'
+          import sys
+          old=tuple(map(int,sys.argv[1].split('.')))
+          new=tuple(map(int,sys.argv[2].split('.')))
+          if new <= old:
+              raise SystemExit('PROMOTION_VERSION_NOT_FORWARD')
+          PY
+
+          public_base="$(git rev-parse HEAD)"
+          main_record="$(git ls-remote --exit-code origin refs/heads/main)" || fail MAIN_IDENTITY_CHECK_FAILED
+          [[ "$main_record" == "$public_base"$'\trefs/heads/main' ]] || fail PROMOTION_NOT_CREATED_FROM_MAIN
+
+          release="$(gh api "repos/$SOURCE_REPOSITORY/releases/tags/v$version")" || fail SOURCE_RELEASE_MISSING
+          test "$(jq -r .draft <<<"$release")" = false || fail SOURCE_RELEASE_DRAFT
+          test "$(jq -r .prerelease <<<"$release")" = false || fail SOURCE_RELEASE_PRERELEASE
+
+          evidence="$RUNNER_TEMP/source-evidence"
+          mkdir -p "$evidence"
+          gh release download "v$version" --repo "$SOURCE_REPOSITORY" --dir "$evidence"
+          required=(
+            "control-center-$version-linux-amd64.tar.gz"
+            "control-center-$version-linux-amd64.tar.gz.sha256"
+            "control-center-$version-source.tar.gz"
+            "control-center-$version.sbom.cdx.json"
+            "THIRD_PARTY_NOTICES.md"
+            "control-center-$version.qualification.json"
+            "control-center-$version.provenance.json"
+            "control-center-$version.release-manifest.json"
+            "SHA256SUMS"
+          )
+          for name in "${required[@]}"; do
+            test -s "$evidence/$name" || fail "SOURCE_EVIDENCE_MISSING:$name"
+          done
+          (cd "$evidence" && sha256sum -c SHA256SUMS)
+
+          source_sha="$(python3 - "$evidence" "$version" "$stable_base_version" <<'PY'
+          import json, pathlib, re, sys
+          root=pathlib.Path(sys.argv[1]); version=sys.argv[2]; stable=sys.argv[3]
+          q=json.loads((root/f'control-center-{version}.qualification.json').read_text(encoding='utf-8'))
+          p=json.loads((root/f'control-center-{version}.provenance.json').read_text(encoding='utf-8'))
+          m=json.loads((root/f'control-center-{version}.release-manifest.json').read_text(encoding='utf-8'))
+          sha=q.get('candidate_sha','')
+          if not re.fullmatch(r'[0-9a-f]{40}', sha): raise SystemExit('SOURCE_SHA_REJECTED')
+          if q.get('schema')!='control-center.candidate-qualification.v2' or q.get('status')!='PASS': raise SystemExit('QUALIFICATION_NOT_PASS')
+          if q.get('candidate_version')!=version or q.get('publication_authority') is not False: raise SystemExit('QUALIFICATION_IDENTITY_REJECTED')
+          if q.get('stable_base',{}).get('version')!=stable: raise SystemExit('QUALIFICATION_STABLE_BASE_DRIFT')
+          if any(v!='PASS' for v in q.get('gates',{}).values()): raise SystemExit('QUALIFICATION_GATE_NOT_PASS')
+          if p.get('candidate_version')!=version or p.get('candidate_sha')!=sha or p.get('publication_authority') is not False: raise SystemExit('PROVENANCE_IDENTITY_REJECTED')
+          if m.get('version')!=version or m.get('revision')!=sha or m.get('status')!='qualified-not-yet-published' or m.get('publication_authority') is not False: raise SystemExit('SOURCE_RELEASE_MANIFEST_REJECTED')
+          print(sha)
+          PY
+          )"
+
+          public_ci_run_id="$(python3 - "$evidence/control-center-$version.qualification.json" <<'PY'
+          import json,sys
+          q=json.load(open(sys.argv[1],encoding='utf-8'))
+          run=q.get('public_ci',{}).get('run_id')
+          if not isinstance(run,int) or run < 1: raise SystemExit('PUBLIC_CI_RUN_ID_MISSING')
+          print(run)
+          PY
+          )"
+          public_ci="$(gh api "repos/$SOURCE_REPOSITORY/actions/runs/$public_ci_run_id")" || fail PUBLIC_CI_RUN_UNAVAILABLE
+          python3 - "$source_sha" "$public_ci" <<'PY'
+          import json,sys
+          sha=sys.argv[1]; run=json.loads(sys.argv[2])
+          if run.get('name')!='Public CI' or run.get('head_sha')!=sha or run.get('conclusion')!='success':
+              raise SystemExit('PUBLIC_CI_NOT_EXACT_PASS')
+          PY
+
+          git remote add approved "https://github.com/$SOURCE_REPOSITORY.git"
+          git fetch --force --no-tags approved "refs/tags/v$version:refs/tags/approved-v$version"
+          tag_sha="$(git rev-parse "refs/tags/approved-v$version^{}")"
+          test "$tag_sha" = "$source_sha" || fail SOURCE_TAG_SHA_DRIFT
+          test "$(git show "$source_sha:VERSION" | tr -d '[:space:]')" = "$version" || fail SOURCE_VERSION_MISMATCH
+          git show "$source_sha:docs/RELEASE_${version}_RU.md" | grep -Eq '^Status: official release\.?$' || fail SOURCE_RELEASE_NOT_OFFICIAL
+          git worktree add --detach "$RUNNER_TEMP/approved-source" "$source_sha"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "stable_base_version=$stable_base_version" >> "$GITHUB_OUTPUT"
+          echo "public_base=$public_base" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "public_ci_run_id=$public_ci_run_id" >> "$GITHUB_OUTPUT"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
+
+      - name: Build sanitized Stable candidate from exact source
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          STABLE_BASE_VERSION: ${{ steps.identity.outputs.stable_base_version }}
+          PUBLIC_BASE: ${{ steps.identity.outputs.public_base }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          PUBLIC_CI_RUN_ID: ${{ steps.identity.outputs.public_ci_run_id }}
+          EVIDENCE: ${{ steps.identity.outputs.evidence }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "$RUNNER_TEMP/approved-source" "$EVIDENCE" <<'PY'
+          import hashlib, json, os, pathlib, shutil, sys
+          source=pathlib.Path(sys.argv[1]); evidence=pathlib.Path(sys.argv[2]); root=pathlib.Path.cwd()
+          version=os.environ['VERSION']; old=os.environ['STABLE_BASE_VERSION']; public_base=os.environ['PUBLIC_BASE']; source_sha=os.environ['SOURCE_SHA']; public_ci=int(os.environ['PUBLIC_CI_RUN_ID'])
+
+          managed_dirs=['cmd','internal','api','config','migrations','third_party']
+          managed_root_files=['go.mod','go.sum','Makefile','Dockerfile','.dockerignore','.editorconfig','.env.example','.gitignore','THIRD_PARTY_NOTICES.md','VERSION']
+          for rel in managed_dirs:
+              src=source/rel
+              if not src.is_dir(): raise SystemExit(f'SOURCE_MANAGED_DIR_MISSING:{rel}')
+              for p in src.rglob('*'):
+                  if p.is_symlink(): raise SystemExit(f'SOURCE_SYMLINK_REJECTED:{p.relative_to(source).as_posix()}')
+              shutil.rmtree(root/rel, ignore_errors=True)
+              shutil.copytree(src, root/rel)
+          for rel in managed_root_files:
+              src=source/rel
+              if not src.is_file() or src.is_symlink(): raise SystemExit(f'SOURCE_MANAGED_FILE_MISSING:{rel}')
+              shutil.copy2(src, root/rel)
+
+          src_systemd=source/'deploy/systemd'
+          if not src_systemd.is_dir(): raise SystemExit('SOURCE_SYSTEMD_MISSING')
+          shutil.rmtree(root/'deploy/systemd', ignore_errors=True)
+          shutil.copytree(src_systemd, root/'deploy/systemd')
+          src_migrate=source/'scripts/migrate.sh'
+          if not src_migrate.is_file() or src_migrate.is_symlink(): raise SystemExit('SOURCE_MIGRATE_MISSING')
+          shutil.copy2(src_migrate, root/'scripts/migrate.sh')
+          os.chmod(root/'scripts/migrate.sh', 0o755)
+
+          if (root/'VERSION').read_text(encoding='utf-8').strip()!=version: raise SystemExit('CANDIDATE_VERSION_DRIFT')
+
+          qpath=evidence/f'control-center-{version}.qualification.json'
+          ppath=evidence/f'control-center-{version}.provenance.json'
+          mpath=evidence/f'control-center-{version}.release-manifest.json'
+          q=json.loads(qpath.read_text(encoding='utf-8'))
+          def digest(path): return 'sha256:'+hashlib.sha256(path.read_bytes()).hexdigest()
+          approved={
+            'schema':'control-center.approved-source-provenance.v1',
+            'product':'control-center',
+            'version':version,
+            'source_repository':'ControlCenterSoft/control-center-development',
+            'source_tag':f'v{version}',
+            'source_revision':source_sha,
+            'stable_base_version':old,
+            'stable_base_revision':public_base,
+            'public_ci_run_id':public_ci,
+            'qualification_digest':digest(qpath),
+            'provenance_digest':digest(ppath),
+            'source_release_manifest_digest':digest(mpath),
+            'qualification_status':'PASS',
+          }
+          (root/'APPROVED-SOURCE.json').write_text(json.dumps(approved,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+
+          stable_manifest={
+            'schema':'control-center.stable-release.v3',
+            'version':version,
+            'channel':'stable',
+            'source_tag':f'v{version}',
+            'source_commit':source_sha,
+            'approved_source_repository':'ControlCenterSoft/control-center-development',
+            'approved_source_revision':source_sha,
+            'stable_base_version':old,
+            'stable_base_revision':public_base,
+            'qualification_result':'success',
+            'required_package_members':['bin/control-center','scripts/migrate.sh','deploy/systemd/control-center.service','VERSION'],
+            'publication_authority':True,
+            'commercial_launch_authority':False,
+          }
+          (root/'RELEASE-MANIFEST.json').write_text(json.dumps(stable_manifest,indent=2,sort_keys=False)+'\n',encoding='utf-8')
+
+          (root/'RELEASE_NOTES.md').write_text(
+            f'# Control Center {version} — Public Stable\n\nСтатус: **Public Stable**.\n\n'
+            f'Выпуск подготовлен из квалифицированного исходного состояния версии {version}. '
+            'Публикация разрешается только после успешной проверки Stable-репозитория.\n',
+            encoding='utf-8')
+          for name in ['README.md','INSTALL.md','ROADMAP.md']:
+              path=root/name
+              if path.is_file():
+                  path.write_text(path.read_text(encoding='utf-8').replace(old,version),encoding='utf-8')
+
+          # Permanent Stable control-plane files must survive every promotion.
+          for required in ['.github/workflows/promote-qualified-stable-v1.yml','.github/workflows/publish-stable-release.yml','internal/releasecandidate/stable_promotion_contract_test.go','scripts/build-release.sh']:
+              if not (root/required).is_file(): raise SystemExit(f'PERMANENT_STABLE_TOOLING_MISSING:{required}')
+          PY
+
+      - name: Requalify Stable candidate before PR
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(tr -d '[:space:]' < VERSION)" = "${{ steps.identity.outputs.version }}"
+          make fmt-check
+          go vet ./...
+          go test -race -count=1 ./...
+          make build
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="${{ steps.identity.outputs.source_sha }}" DIST_DIR="$RUNNER_TEMP/stable-candidate-a" bash scripts/build-release.sh
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" COMMIT="${{ steps.identity.outputs.source_sha }}" DIST_DIR="$RUNNER_TEMP/stable-candidate-b" bash scripts/build-release.sh
+          cmp "$RUNNER_TEMP/stable-candidate-a/control-center-${{ steps.identity.outputs.version }}-linux-amd64.tar.gz" "$RUNNER_TEMP/stable-candidate-b/control-center-${{ steps.identity.outputs.version }}-linux-amd64.tar.gz"
+          git diff --check
+
+      - name: Commit candidate and open Stable PR
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo PROMOTION_CANDIDATE_NO_CHANGES >&2; exit 66; }
+          git commit -m "release: prepare Control Center ${VERSION} Public Stable"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --base main --state open --json number --jq '.[0].number // empty')"
+          if [[ -z "$existing" ]]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --base main \
+              --title "release: promote Control Center ${VERSION} to Public Stable" \
+              --body "Exact qualified source: \`${SOURCE_SHA}\`. Stable promotion remains blocked until this PR passes \`Verify Control Center Stable\` and is merged."
+          fi
+          echo "CC_STABLE_PROMOTION_CANDIDATE=PASS version=$VERSION source_sha=$SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
