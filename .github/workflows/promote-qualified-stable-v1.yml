@@ -141,6 +141,14 @@ jobs:
           source=pathlib.Path(sys.argv[1]); evidence=pathlib.Path(sys.argv[2]); root=pathlib.Path.cwd()
           version=os.environ['VERSION']; old=os.environ['STABLE_BASE_VERSION']; public_base=os.environ['PUBLIC_BASE']; source_sha=os.environ['SOURCE_SHA']; public_ci=int(os.environ['PUBLIC_CI_RUN_ID'])
 
+          # Stable-owned control-plane payload must survive replacement of managed source trees.
+          stable_owned_paths=['internal/releasecandidate/stable_promotion_contract_test.go']
+          stable_owned_payloads={}
+          for rel in stable_owned_paths:
+              path=root/rel
+              if not path.is_file() or path.is_symlink(): raise SystemExit(f'STABLE_OWNED_TOOLING_MISSING:{rel}')
+              stable_owned_payloads[rel]=path.read_bytes()
+
           managed_dirs=['cmd','internal','api','config','migrations','third_party']
           managed_root_files=['go.mod','go.sum','Makefile','Dockerfile','.dockerignore','.editorconfig','.env.example','.gitignore','THIRD_PARTY_NOTICES.md','VERSION']
           for rel in managed_dirs:
@@ -154,6 +162,12 @@ jobs:
               src=source/rel
               if not src.is_file() or src.is_symlink(): raise SystemExit(f'SOURCE_MANAGED_FILE_MISSING:{rel}')
               shutil.copy2(src, root/rel)
+
+          # Restore Stable-owned control-plane payload after importing Development's managed trees.
+          for rel, payload in stable_owned_payloads.items():
+              path=root/rel
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(payload)
 
           src_systemd=source/'deploy/systemd'
           if not src_systemd.is_dir(): raise SystemExit('SOURCE_SYSTEMD_MISSING')
