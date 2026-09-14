@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/ui-operational-report-v1.schema.json",
+  "title": "Control Center Operational Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "data_state",
+    "overall_state",
+    "generated_at",
+    "evidence",
+    "evidence_digest",
+    "mutation_authorized"
+  ],
+  "properties": {
+    "schema": { "const": "ui.operational-report/v1" },
+    "data_state": { "$ref": "#/$defs/data_state" },
+    "overall_state": { "$ref": "#/$defs/health_state" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "evidence_digest": { "$ref": "#/$defs/sha256" },
+    "mutation_authorized": { "const": false }
+  },
+  "$defs": {
+    "data_state": {
+      "type": "string",
+      "enum": ["loaded", "unavailable"]
+    },
+    "health_state": {
+      "type": "string",
+      "enum": ["healthy", "unknown", "degraded", "unhealthy"]
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["current", "stale", "expired", "unavailable"]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "bounded_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9._-]+$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "resource_kind",
+        "resource_id",
+        "observed_state",
+        "effective_state",
+        "freshness",
+        "observed_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "resource_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "resource_id": { "$ref": "#/$defs/bounded_text" },
+        "observed_state": { "$ref": "#/$defs/health_state" },
+        "effective_state": { "$ref": "#/$defs/health_state" },
+        "freshness": { "$ref": "#/$defs/freshness" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "reason_code": { "$ref": "#/$defs/reason_code" },
+        "runbook_ref": { "$ref": "#/$defs/bounded_text" },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/bounded_text" }
+        },
+        "evidence_digest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

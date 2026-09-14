@@ -63,7 +63,7 @@ func newAuditEventsFixture(t *testing.T) auditEventsFixture {
 			t.Fatal(err)
 		}
 	}
-	server, err := NewServer(authService, authorizer, log, Config{})
+	server, err := NewServerWithAuditExport(authService, authorizer, log, Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

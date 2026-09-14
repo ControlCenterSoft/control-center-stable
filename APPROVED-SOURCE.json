@@ -1,0 +1,15 @@
+{
+  "product": "control-center",
+  "provenance_digest": "sha256:be07590f10345860fcb4e254a4c6ef89b2d8ece20cc3edf7fc1102a7f2ac0881",
+  "public_ci_run_id": 34821601131,
+  "qualification_digest": "sha256:6c17e49bf31caded58b9172a84156398a1d192927d164f6426e0a80f8ee74d38",
+  "qualification_status": "PASS",
+  "schema": "control-center.approved-source-provenance.v1",
+  "source_release_manifest_digest": "sha256:94d7dbd49ab4e2ff39428cc512ab65cca89bd5768423245ea8b1400f266cd325",
+  "source_repository": "ControlCenterSoft/control-center-development",
+  "source_revision": "bf2416a43891031c26811f65970121f65d126e16",
+  "source_tag": "v0.32.0",
+  "stable_base_revision": "0d2314e48b6353bd4c857439598d56c92e4ae836",
+  "stable_base_version": "0.31.1",
+  "version": "0.32.0"
+}

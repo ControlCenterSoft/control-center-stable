@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"net/http"
+	"time"
 
 	"control-center/internal/agent"
 	agentapi "control-center/internal/agent/httpapi"
@@ -26,6 +27,8 @@ type productHandlerConfig struct {
 	lifecycleProjection     nodelifecycle.Projection
 	infrastructureInventory productui.InfrastructureInventoryProvider
 	changesJobs             productui.ChangesJobsProvider
+	resourceReports         productui.OperationalReportProvider
+	auditReports            productui.OperationalReportProvider
 }
 
 type productHandlerOption func(*productHandlerConfig)
@@ -62,10 +65,37 @@ func withChangesJobsProvider(provider productui.ChangesJobsProvider) productHand
 	}
 }
 
+// withResourceReportsProvider registers a report source that is already
+// constrained to ordinary infrastructure/resource evidence. The route keeps
+// the existing global resources.read boundary and cannot be switched by a
+// client to an Audit-backed source.
+func withResourceReportsProvider(provider productui.OperationalReportProvider) productHandlerOption {
+	return func(config *productHandlerConfig) {
+		if provider != nil {
+			config.resourceReports = provider
+		}
+	}
+}
+
+// withAuditReportsProvider registers a report source containing Audit-derived
+// evidence. It is intentionally a distinct option so the route always retains
+// the stronger global audit.events.read boundary instead of sharing the
+// resources.read route merely because both sources use ui.operational-report.
+func withAuditReportsProvider(provider productui.OperationalReportProvider) productHandlerOption {
+	return func(config *productHandlerConfig) {
+		if provider != nil {
+			config.auditReports = provider
+		}
+	}
+}
+
 func newProductHandler(identity *identityapi.Server, options ...productHandlerOption) http.Handler {
 	mux := http.NewServeMux()
 	guard := func(permission rbac.Permission, handler http.Handler) http.Handler {
 		return identity.Authenticate(identity.Require(permission, rbac.GlobalScope())(handler))
+	}
+	webGuard := func(permission rbac.Permission, handler http.Handler) http.Handler {
+		return identity.AuthenticateWeb(identity.RequireWeb(permission, rbac.GlobalScope())(handler))
 	}
 	config := productHandlerConfig{lifecycleProjection: nodelifecycle.NewEmptyMemoryProjection()}
 	for _, option := range options {
@@ -111,6 +141,16 @@ func newProductHandler(identity *identityapi.Server, options ...productHandlerOp
 	if config.changesJobs != nil {
 		mux.Handle("GET /api/v1/ui/changes-jobs", guard(rbac.PermissionJobsRead, uiapi.ChangesJobsHandler(config.changesJobs)))
 	}
+	if config.resourceReports != nil {
+		mux.Handle("GET /api/v1/ui/reports/resources", guard(rbac.PermissionResourcesRead, uiapi.OperationalReportHandler(config.resourceReports)))
+		mux.Handle("GET /api/v1/ui/reports/resources/evidence", guard(rbac.PermissionResourcesRead, uiapi.EvidenceDrawerHandler(config.resourceReports)))
+		mux.Handle("GET /reports/resources", webGuard(rbac.PermissionResourcesRead, operationalReportWebHandler(config.resourceReports, "Ресурсы / Health")))
+	}
+	if config.auditReports != nil {
+		mux.Handle("GET /api/v1/ui/reports/audit", guard(rbac.PermissionAuditRead, uiapi.OperationalReportHandler(config.auditReports)))
+		mux.Handle("GET /api/v1/ui/reports/audit/evidence", guard(rbac.PermissionAuditRead, uiapi.EvidenceDrawerHandler(config.auditReports)))
+		mux.Handle("GET /reports/audit", webGuard(rbac.PermissionAuditRead, operationalReportWebHandler(config.auditReports, "Audit")))
+	}
 	return mux
 }
 
@@ -144,6 +184,51 @@ func infrastructureWebHandler(provider productui.InfrastructureInventoryProvider
 			view,
 		); err != nil {
 			http.Error(w, "infrastructure inventory unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		w.WriteHeader(status)
+		_, _ = w.Write(body.Bytes())
+	})
+}
+
+func operationalReportWebHandler(provider productui.OperationalReportProvider, sourceLabel string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := identityapi.PrincipalFromContext(r.Context())
+		if !ok || provider == nil {
+			http.Error(w, "operational report unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		report, err := provider.OperationalReport(r.Context())
+		status := http.StatusOK
+		if err != nil || productui.ValidateOperationalReport(report) != nil {
+			report, err = productui.BuildOperationalReport(time.Now().UTC(), productui.ReportDataUnavailable, nil)
+			if err != nil {
+				http.Error(w, "operational report unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			status = http.StatusServiceUnavailable
+		} else if report.DataState == productui.ReportDataUnavailable {
+			status = http.StatusServiceUnavailable
+		}
+
+		var body bytes.Buffer
+		if err := identityapi.RenderOperationalReport(
+			&body,
+			buildinfo.Version,
+			principal.Identity.DisplayName,
+			principal.Identity.Username,
+			sourceLabel,
+			report,
+		); err != nil {
+			http.Error(w, "operational report unavailable", http.StatusServiceUnavailable)
 			return
 		}
 

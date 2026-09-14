@@ -1,0 +1,105 @@
+openapi: 3.0.3
+info:
+  title: Control Center Audit CSV Export API
+  version: 0.32.0-source
+  description: >-
+    Source-only contract for the bounded, permission-gated Control Center 0.32
+    Audit CSV export. The endpoint is not route-active until separate
+    qualification and integration. Export never widens Audit access beyond the
+    existing bounded read permission and must fail closed if its own Audit
+    evidence cannot be persisted before response bytes are released.
+paths:
+  /api/v1/audit/events/export:
+    get:
+      operationId: exportAuditEventsCSV
+      summary: Export one bounded page of Audit events as CSV
+      description: >-
+        Exports at most 100 Audit events newest first using the same exact-match
+        filters and opaque cursor semantics as GET /api/v1/audit/events. Access
+        requires an authenticated session, completed first-login password
+        change and the global audit.events.read permission. This is not a bulk
+        or unbounded dump: one request exports only one bounded page. The CSV
+        intentionally omits the top-level source_ip field, re-applies secret
+        redaction to structured details, redacts nested IP-address fields used
+        for export, and neutralizes spreadsheet formula prefixes in textual
+        cells. A successful export is itself written to Audit before any CSV
+        bytes are returned; inability to write that evidence blocks disclosure.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor returned by the bounded Audit read contract.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: action
+          in: query
+          required: false
+          description: Exact Audit action filter.
+          schema:
+            type: string
+            maxLength: 192
+        - name: outcome
+          in: query
+          required: false
+          description: Exact Audit outcome filter.
+          schema:
+            type: string
+            maxLength: 32
+        - name: actor_id
+          in: query
+          required: false
+          description: Exact actor identifier filter.
+          schema:
+            type: string
+            maxLength: 128
+        - name: subject_id
+          in: query
+          required: false
+          description: Exact subject identifier filter.
+          schema:
+            type: string
+            maxLength: 256
+      responses:
+        '200':
+          description: >-
+            One privacy-minimized bounded CSV page. The response contains no
+            top-level source_ip column and is never returned unless export Audit
+            evidence has already been persisted.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Always no-store.
+            Content-Disposition:
+              schema:
+                type: string
+              description: Attachment filename for the CSV export.
+            X-Content-Type-Options:
+              schema:
+                type: string
+              description: Always nosniff.
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid, ambiguous, repeated, unsupported, or unbounded query.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Password change is required or audit.events.read is denied.
+        '503':
+          description: >-
+            Audit storage/read, export construction, or mandatory export-evidence
+            recording is unavailable. No CSV bytes are released on this path.

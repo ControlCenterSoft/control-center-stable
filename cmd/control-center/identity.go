@@ -37,7 +37,7 @@ func newIdentityHandler(environment string, db *sql.DB, sessionTTL, sessionIdleT
 	}
 	authorizer := postgres.NewAuthorizer(db)
 
-	return identityapi.NewServerWithAuditIntegrity(authService, authorizer, auditLog, identityapi.Config{
+	return identityapi.NewServerWithAuditExport(authService, authorizer, auditLog, identityapi.Config{
 		InsecureCookiesForDevelopment: environment == "development" || environment == "test",
 	})
 }

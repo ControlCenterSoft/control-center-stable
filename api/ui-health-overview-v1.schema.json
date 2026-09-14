@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-center.pro/schemas/ui-health-overview-v1.schema.json",
+  "title": "Control Center Health Overview v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "data_state",
+    "overall_state",
+    "resources",
+    "signals",
+    "mutation_authorized"
+  ],
+  "properties": {
+    "schema": { "const": "ui.health-overview/v1" },
+    "data_state": { "type": "string", "enum": ["loaded", "unavailable"] },
+    "overall_state": { "$ref": "#/$defs/health_state" },
+    "resources": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "signals": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/signal" }
+    },
+    "mutation_authorized": { "const": false }
+  },
+  "$defs": {
+    "health_state": {
+      "type": "string",
+      "enum": ["healthy", "unknown", "degraded", "unhealthy"]
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["current", "stale", "expired"]
+    },
+    "bounded_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/bounded_text" }
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "resource_kind",
+        "resource_id",
+        "check_name",
+        "observed_state",
+        "effective_state",
+        "freshness",
+        "observed_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "resource_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "resource_id": { "$ref": "#/$defs/bounded_text" },
+        "check_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "observed_state": { "$ref": "#/$defs/health_state" },
+        "effective_state": { "$ref": "#/$defs/health_state" },
+        "freshness": { "$ref": "#/$defs/freshness" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "runbook_ref": { "$ref": "#/$defs/bounded_text" },
+        "evidence_refs": { "$ref": "#/$defs/evidence_refs" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_kind",
+        "resource_id",
+        "state",
+        "freshness",
+        "signal_ids"
+      ],
+      "properties": {
+        "resource_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "resource_id": { "$ref": "#/$defs/bounded_text" },
+        "state": { "$ref": "#/$defs/health_state" },
+        "freshness": { "$ref": "#/$defs/freshness" },
+        "signal_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+          }
+        }
+      }
+    }
+  }
+}

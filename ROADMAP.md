@@ -1,10 +1,10 @@
 # Control Center — продуктовая дорожная карта
 
-Статус: **CURRENT**. Текущий официальный Public Stable — **0.31.1**.
+Статус: **CURRENT**. Текущий официальный Public Stable — **0.32.0**.
 
 Опубликованная основа включает Identity/RBAC/Audit, Site/Network foundation, Capacity Intelligence foundation, Session Security, recovery/network evidence freshness, Product Web Shell, Sites / Nodes / Inventory и безопасный Changes / Jobs operational workflow с approval, durable Job, verification и recovery evidence.
 
-0.31.1 завершает corrective release cycle для package-shape regression 0.31.0. Linux Stable package содержит обязательный `scripts/migrate.sh`; подтверждены clean install, переходы `0.30.0 → 0.31.1` и `0.31.0 → 0.31.1`, migration idempotency и post-publication asset verification. Исторический `v0.31.0` не переписывается.
+0.32.0 завершает corrective release cycle для package-shape regression 0.31.0. Linux Stable package содержит обязательный `scripts/migrate.sh`; подтверждены clean install, переходы `0.30.0 → 0.32.0` и `0.31.0 → 0.32.0`, migration idempotency и post-publication asset verification. Исторический `v0.31.0` не переписывается.
 
 ## Ближайший публичный шаг
 

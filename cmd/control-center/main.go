@@ -17,6 +17,8 @@ import (
 	coreobjectsapi "control-center/internal/corecontracts/httpapi"
 	"control-center/internal/httpapi"
 	"control-center/internal/identity/rbac"
+	"control-center/internal/incidents"
+	incidenthttpapi "control-center/internal/incidents/httpapi"
 	"control-center/internal/persistence/postgres"
 	"control-center/internal/resources"
 )
@@ -74,6 +76,38 @@ func run() error {
 		return fmt.Errorf("initialize orchestration: %w", err)
 	}
 	product := newProductHandler(identity, withChangesJobsProvider(orchestration))
+
+	incidentRepository, err := postgres.NewIncidentReadRepository(db)
+	if err != nil {
+		return fmt.Errorf("initialize incident repository: %w", err)
+	}
+	authorizationChecker, ok := identity.AuthorizationChecker()
+	if !ok {
+		return errors.New("initialize incidents: authorization checker unavailable")
+	}
+	incidentPolicy, err := incidents.NewRBACOperatorPolicy(
+		authorizationChecker,
+		incidents.ScopeIDRBACResolver{Kind: rbac.ScopeSite},
+		incidents.DefaultRBACPermissionMap(),
+	)
+	if err != nil {
+		return fmt.Errorf("initialize incident authorization: %w", err)
+	}
+	incidentCommitter, err := postgres.NewIncidentMutationCommitter(db)
+	if err != nil {
+		return fmt.Errorf("initialize incident mutation committer: %w", err)
+	}
+	incidentService := incidents.NewOperatorService(
+		incidentRepository,
+		incidentPolicy,
+		postgres.NewIncidentResourceVersionGenerator(),
+		incidentCommitter,
+	)
+	incidentRoutes, err := incidenthttpapi.NewAuthenticated(identity, incidentService)
+	if err != nil {
+		return fmt.Errorf("initialize incident API: %w", err)
+	}
+
 	server := &http.Server{
 		Addr: cfg.ListenAddress,
 		Handler: splitHandler{
@@ -81,6 +115,7 @@ func run() error {
 			identity:        commonMiddleware(identity),
 			orchestration:   orchestration.Handler(),
 			distributedCore: commonMiddleware(distributedCore.Handler()),
+			incidents:       commonMiddleware(incidentRoutes),
 			product:         commonMiddleware(product),
 		},
 		ReadTimeout:       cfg.ReadTimeout,
@@ -129,6 +164,7 @@ type splitHandler struct {
 	identity        http.Handler
 	orchestration   http.Handler
 	distributedCore http.Handler
+	incidents       http.Handler
 	product         http.Handler
 }
 
@@ -137,7 +173,7 @@ func (h splitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(path, "/api/v1/auth/") ||
 		strings.HasPrefix(path, "/api/v1/identity/") ||
 		path == "/api/v1/system/overview" ||
-		path == "/login" || path == "/overview" ||
+		path == "/login" || path == "/overview" || path == "/audit" ||
 		strings.HasPrefix(path, "/web/") {
 		h.identity.ServeHTTP(w, r)
 		return
@@ -151,6 +187,10 @@ func (h splitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(path, "/api/v1/core/") && h.distributedCore != nil {
 		h.distributedCore.ServeHTTP(w, r)
+		return
+	}
+	if (path == "/api/v1/incidents" || strings.HasPrefix(path, "/api/v1/incidents/")) && h.incidents != nil {
+		h.incidents.ServeHTTP(w, r)
 		return
 	}
 	if path == "/api/v1/nodes/enrollment/plan" ||
@@ -176,6 +216,8 @@ func (h splitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(path, "/api/v1/agent/nodes/") ||
 		path == "/api/v1/ui/infrastructure" ||
 		path == "/api/v1/ui/changes-jobs" ||
+		strings.HasPrefix(path, "/api/v1/ui/reports/") ||
+		strings.HasPrefix(path, "/reports/") ||
 		path == "/infrastructure" ||
 		path == "/api/v1/market/manifests" ||
 		strings.HasPrefix(path, "/api/v1/market/manifests/") ||

@@ -1,9 +1,13 @@
 {
   "schema": "control-center.stable-release.v3",
-  "version": "0.31.1",
+  "version": "0.32.0",
   "channel": "stable",
-  "source_tag": "v0.31.1",
-  "source_commit": "3c9999fb5b056dad9d8dda9cf45809acb021497e",
+  "source_tag": "v0.32.0",
+  "source_commit": "bf2416a43891031c26811f65970121f65d126e16",
+  "approved_source_repository": "ControlCenterSoft/control-center-development",
+  "approved_source_revision": "bf2416a43891031c26811f65970121f65d126e16",
+  "stable_base_version": "0.31.1",
+  "stable_base_revision": "0d2314e48b6353bd4c857439598d56c92e4ae836",
   "qualification_result": "success",
   "required_package_members": [
     "bin/control-center",
