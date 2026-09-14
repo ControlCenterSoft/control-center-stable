@@ -37,7 +37,12 @@ jobs:
         run: |
           set -Eeuo pipefail
           fail() { echo "$1" >&2; exit 66; }
-          version="${GITHUB_REF_NAME#promote1/}"
+          promotion_ref="${GITHUB_REF_NAME#promote1/}"
+          version="${promotion_ref%%/*}"
+          if [[ "$promotion_ref" != "$version" ]]; then
+            attempt="${promotion_ref#"$version"/}"
+            [[ "$attempt" =~ ^attempt-[1-9][0-9]*$ ]] || fail PROMOTION_ATTEMPT_REJECTED
+          fi
           [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail PROMOTION_VERSION_REJECTED
           stable_base_version="$(tr -d '[:space:]' < VERSION)"
           [[ "$stable_base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail STABLE_BASE_VERSION_REJECTED
