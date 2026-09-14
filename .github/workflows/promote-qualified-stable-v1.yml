@@ -38,9 +38,9 @@ jobs:
           set -Eeuo pipefail
           fail() { echo "$1" >&2; exit 66; }
           promotion_ref="${GITHUB_REF_NAME#promote1/}"
-          version="${promotion_ref%%/*}"
+          version="${promotion_ref%%-attempt-*}"
           if [[ "$promotion_ref" != "$version" ]]; then
-            attempt="${promotion_ref#"$version"/}"
+            attempt="${promotion_ref#"$version"-}"
             [[ "$attempt" =~ ^attempt-[1-9][0-9]*$ ]] || fail PROMOTION_ATTEMPT_REJECTED
           fi
           [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail PROMOTION_VERSION_REJECTED
