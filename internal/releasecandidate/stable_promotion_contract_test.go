@@ -53,7 +53,8 @@ func TestPermanentStablePromotionV1Contract(t *testing.T) {
 		"DEVELOPMENT_RELEASE_CONTRACT_LEAKED",
 		"PERMANENT_STABLE_TOOLING_MISSING",
 		"go test -race -count=1 ./...",
-		"gh pr create",
+		"STABLE_PR_HANDOFF=REQUIRED",
+		"The sole Integration writer must open the Stable promotion PR",
 		"Verify Control Center Stable",
 	} {
 		if !strings.Contains(workflow, marker) {
@@ -62,6 +63,8 @@ func TestPermanentStablePromotionV1Contract(t *testing.T) {
 	}
 
 	for _, forbidden := range []string{
+		"gh pr create",
+		"pull-requests: write",
 		"git push --force",
 		"--force-with-lease",
 		"refs/heads/main",
