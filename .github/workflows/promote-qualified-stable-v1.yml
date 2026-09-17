@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
   actions: read
 
 concurrency:
@@ -263,7 +262,7 @@ jobs:
           cmp "$RUNNER_TEMP/stable-candidate-a/control-center-${{ steps.identity.outputs.version }}-linux-amd64.tar.gz" "$RUNNER_TEMP/stable-candidate-b/control-center-${{ steps.identity.outputs.version }}-linux-amd64.tar.gz"
           git diff --check
 
-      - name: Commit candidate and open Stable PR
+      - name: Commit candidate for Integration-owned Stable PR
         shell: bash
         env:
           VERSION: ${{ steps.identity.outputs.version }}
@@ -277,10 +276,6 @@ jobs:
           git diff --cached --quiet && { echo PROMOTION_CANDIDATE_NO_CHANGES >&2; exit 66; }
           git commit -m "release: prepare Control Center ${VERSION} Public Stable"
           git push origin "HEAD:$GITHUB_REF_NAME"
-          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --base main --state open --json number --jq '.[0].number // empty')"
-          if [[ -z "$existing" ]]; then
-            gh pr create --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --base main \
-              --title "release: promote Control Center ${VERSION} to Public Stable" \
-              --body "Exact qualified source: \`${SOURCE_SHA}\`. Stable promotion remains blocked until this PR passes \`Verify Control Center Stable\` and is merged."
-          fi
           echo "CC_STABLE_PROMOTION_CANDIDATE=PASS version=$VERSION source_sha=$SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "STABLE_PR_HANDOFF=REQUIRED branch=$GITHUB_REF_NAME base=main" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo 'The sole Integration writer must open the Stable promotion PR after this workflow succeeds; that PR remains blocked until Verify Control Center Stable passes and it is merged.' | tee -a "$GITHUB_STEP_SUMMARY"
